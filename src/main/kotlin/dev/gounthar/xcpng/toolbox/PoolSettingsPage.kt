@@ -9,7 +9,6 @@ import com.jetbrains.toolbox.api.ui.components.TextField
 import com.jetbrains.toolbox.api.ui.components.TextType
 import com.jetbrains.toolbox.api.ui.components.UiField
 import com.jetbrains.toolbox.api.ui.components.UiPage
-import com.jetbrains.toolbox.api.ui.components.ValidationErrorField
 import com.jetbrains.toolbox.api.ui.components.ValidationResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,6 +30,8 @@ import java.net.URI
 class PoolSettingsPage(
     private val settings: XoSettings,
     private val i18n: LocalizableStringFactory,
+    /** See the note on [ConnectionSettingsPage]: the page cannot render its own error. */
+    private val showProblem: (String) -> Unit,
     private val onSaved: () -> Unit,
 ) : UiPage(MutableStateFlow(i18n.ptrl("XCP-ng pool"))) {
 
@@ -79,11 +80,8 @@ class PoolSettingsPage(
         i18n.pnotr("root"),
     ) { ValidationResult.Valid }
 
-    /** See the note on [ConnectionSettingsPage]: a field validator does not gate the button. */
-    private val errorField = ValidationErrorField(i18n.pnotr(""))
-
     override val fields: StateFlow<List<UiField>> =
-        MutableStateFlow(listOf(urlField, tokenField, insecureField, userField, errorField))
+        MutableStateFlow(listOf(urlField, tokenField, insecureField, userField))
 
     override val description: LocalizableString = i18n.pnotr(
         "Create a token in Xen Orchestra under your own user, or with " +
@@ -99,10 +97,9 @@ class PoolSettingsPage(
                 override fun run() {
                     val problem = firstProblem()
                     if (problem != null) {
-                        errorField.textState.value = i18n.pnotr(problem)
+                        showProblem(problem)
                         return
                     }
-                    errorField.textState.value = i18n.pnotr("")
                     save()
                 }
             },

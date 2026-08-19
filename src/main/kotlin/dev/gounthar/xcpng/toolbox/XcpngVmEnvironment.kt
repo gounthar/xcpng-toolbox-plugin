@@ -312,9 +312,23 @@ class XcpngVmEnvironment(
     private fun connectionSettingsAction(): ActionDescription =
         action("Connection settings\u2026", busyState = null) {
             ui.showUiPageSuspending(
-                ConnectionSettingsPage(vm, settings, i18n) {
-                    logger.info("XCP-ng: connection settings saved for ${vm.uuid}.")
-                },
+                ConnectionSettingsPage(
+                    vm,
+                    settings,
+                    i18n,
+                    showProblem = { problem ->
+                        scope.launch {
+                            ui.showInfoPopup(
+                                i18n.ptrl("Not saved"),
+                                i18n.pnotr(problem),
+                                i18n.ptrl("OK"),
+                            )
+                        }
+                    },
+                    onSaved = {
+                        logger.info("XCP-ng: connection settings saved for ${vm.uuid}.")
+                    },
+                ),
             )
         }
 

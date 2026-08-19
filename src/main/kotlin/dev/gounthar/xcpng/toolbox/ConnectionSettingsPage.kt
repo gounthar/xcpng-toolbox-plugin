@@ -8,7 +8,6 @@ import com.jetbrains.toolbox.api.ui.components.TextField
 import com.jetbrains.toolbox.api.ui.components.TextType
 import com.jetbrains.toolbox.api.ui.components.UiField
 import com.jetbrains.toolbox.api.ui.components.UiPage
-import com.jetbrains.toolbox.api.ui.components.ValidationErrorField
 import com.jetbrains.toolbox.api.ui.components.ValidationResult
 import dev.gounthar.xcpng.toolbox.xo.XoVm
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,6 +30,14 @@ class ConnectionSettingsPage(
     private val vm: XoVm,
     private val settings: XoSettings,
     private val i18n: LocalizableStringFactory,
+    /**
+     * How a rejected save tells the user why.
+     *
+     * A callback rather than a field on the page, because the page cannot render one — see the
+     * note on the save button — and because `ToolboxUi.showInfoPopup` is suspending and this class
+     * has no scope to launch it on. The caller owns both.
+     */
+    private val showProblem: (String) -> Unit,
     private val onSaved: () -> Unit,
 ) : UiPage(MutableStateFlow(i18n.pnotr("Connection — \"${vm.nameLabel}\""))) {
 
@@ -69,19 +76,8 @@ class ConnectionSettingsPage(
         i18n.pnotr(XoSettings.DEFAULT_SSH_PORT.toString()),
     ) { asValidation(portProblem(it)) }
 
-    /**
-     * Where a rejected save says why.
-     *
-     * Field-level validators do nothing here. `RunnableActionDescription.validate()` defaults to
-     * true and the address field's validator does reject `user@host`, yet typing that and pressing
-     * Save wrote it to disk **and displayed no message at all** — measured 2026-08-19, by typing
-     * it and then reading `settings.json`. So the validator neither blocks the action nor shows
-     * the user anything, and the only check that protects a stored value is one inside the button.
-     */
-    private val errorField = ValidationErrorField(i18n.pnotr(""))
-
     override val fields: StateFlow<List<UiField>> =
-        MutableStateFlow(listOf(userField, hostField, portField, errorField))
+        MutableStateFlow(listOf(userField, hostField, portField))
 
     override val description: LocalizableString = i18n.pnotr(
         "Leave the address empty to use whatever the pool reports while the VM is running. " +
@@ -99,13 +95,29 @@ class ConnectionSettingsPage(
                 // rather than closing and discarding what the user typed.
                 override val shouldClosePage: Boolean get() = firstProblem() == null
 
+                /**
+                 * Two mechanisms for telling the user were tried here and neither rendered
+                 * anything, both measured on 2026-08-19 by typing `root@192.168.1.99` into the
+                 * address field and pressing Save.
+                 *
+                 * First the field validator, which `TextField` takes as its seventh argument and
+                 * which correctly rejects that input: the value was written to `settings.json`
+                 * and no message appeared. Then a check in here plus a [ValidationErrorField] on
+                 * the page: the write was correctly blocked — verified by reading the file back,
+                 * the key stayed empty — and still no message appeared, which is worse, because a
+                 * silent refusal reads as a successful save.
+                 *
+                 * So the reason goes through [showProblem] to `ToolboxUi.showInfoPopup`, which
+                 * this project has watched work. That is not a return to the popup this codebase
+                 * removed: the rule from that one is that a method **Toolbox** calls for
+                 * enumeration must never be modal. A Save the user clicked is the opposite case.
+                 */
                 override fun run() {
                     val problem = firstProblem()
                     if (problem != null) {
-                        errorField.textState.value = i18n.pnotr(problem)
+                        showProblem(problem)
                         return
                     }
-                    errorField.textState.value = i18n.pnotr("")
                     settings.setSshOverrides(
                         vm.uuid,
                         user = userField.textState.value,
