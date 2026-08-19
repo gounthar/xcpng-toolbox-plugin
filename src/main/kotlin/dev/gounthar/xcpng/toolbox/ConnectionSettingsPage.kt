@@ -164,11 +164,14 @@ class ConnectionSettingsPage(
          */
         internal fun normalise(user: String, host: String, port: String): Fields {
             var resolvedUser = user
-            var resolvedPort = port
 
-            // Anything after whitespace is not part of a hostname. Taking the first token turns a
-            // fumbled paste into something usable rather than storing a string SSH will choke on.
-            var resolvedHost = host.trim().substringBefore(' ').trim()
+            // Normalised first, not last. A port field holding something unusable is not a port,
+            // and treating it as one made it win against a real port typed in the address: the
+            // address's `:2222` was stripped off the host and then discarded because the field it
+            // would have gone into was not blank. Both values were lost, silently.
+            var resolvedPort = port.asPortOrBlank()
+
+            var resolvedHost = host.firstToken()
 
             resolvedHost.substringBefore('@', missingDelimiterValue = "")
                 .takeIf { it.isNotEmpty() }
@@ -179,23 +182,66 @@ class ConnectionSettingsPage(
                     if (resolvedUser.isBlank()) resolvedUser = typedUser
                 }
 
-            // Bracketed IPv6 keeps its colons; a bare host:port does not. Anything unparseable as
-            // a port is dropped rather than guessed at.
-            if (!resolvedHost.startsWith("[") && resolvedHost.count { it == ':' } == 1) {
-                val typedPort = resolvedHost.substringAfter(':')
-                typedPort.trim().toIntOrNull()?.takeIf { it in 1..65535 }?.let {
-                    resolvedHost = resolvedHost.substringBefore(':')
-                    if (resolvedPort.isBlank()) resolvedPort = it.toString()
-                }
-            }
-
-            // A port that survived here but is not a usable number would otherwise be stored as
-            // one.
-            if (resolvedPort.trim().toIntOrNull()?.takeIf { it in 1..65535 } == null) {
-                resolvedPort = ""
+            splitHostAndPort(resolvedHost)?.let { (bareHost, typedPort) ->
+                resolvedHost = bareHost
+                if (resolvedPort.isBlank()) resolvedPort = typedPort
             }
 
             return Fields(resolvedUser, resolvedHost, resolvedPort)
         }
+
+        /** The port if it is one, blank otherwise. Never a guess. */
+        private fun String.asPortOrBlank(): String =
+            trim().toIntOrNull()?.takeIf { it in 1..65535 }?.toString().orEmpty()
+
+        /**
+         * The address out of whatever was pasted into the field.
+         *
+         * Splits on **any** whitespace, not just a space: a paste carrying a tab or a wrapped
+         * newline otherwise left the rest of the command sitting in the host.
+         *
+         * The `ssh ...` case is the one that bit hardest. Taking the first token of
+         * `ssh root@vm.local` yields `ssh`, which is not an error anywhere — it is stored, and the
+         * page reports a successful save of a hostname that cannot resolve. Since a `UiPage` here
+         * has no way to report a refusal, an unparseable paste returns **blank** instead: a field
+         * that is visibly empty says "nothing was saved", which is the honest answer and the one
+         * the user can act on.
+         */
+        private fun String.firstToken(): String {
+            val tokens = trim().split(WHITESPACE).filter { it.isNotEmpty() }
+            val first = tokens.firstOrNull().orEmpty()
+            if (!first.equals("ssh", ignoreCase = true)) return first
+
+            val rest = tokens.drop(1)
+            return rest.firstOrNull { it.contains('@') }
+                // `ssh vm.local` is unambiguous. `ssh -p 2222 vm.local` is not, and picking a
+                // token out of it would store the port as the hostname.
+                ?: rest.singleOrNull()
+                ?: ""
+        }
+
+        /**
+         * A host and a port, when the address carries one. Null when it does not.
+         *
+         * Bracketed IPv6 is handled explicitly rather than merely excluded. Skipping anything
+         * starting with `[` protects a bare `[::1]`, but it also silently left the `:2222` of
+         * `[::1]:2222` — the standard RFC 3986 form — glued to the host, so SSH would dial that
+         * whole string on port 22.
+         */
+        private fun splitHostAndPort(host: String): Pair<String, String>? {
+            if (host.startsWith("[")) {
+                val close = host.indexOf(']')
+                if (close < 0 || close + 1 >= host.length || host[close + 1] != ':') return null
+                val port = host.substring(close + 2).asPortOrBlank()
+                return if (port.isEmpty()) null else host.substring(0, close + 1) to port
+            }
+            // Exactly one colon separates a host from a port. More than one is an unbracketed
+            // IPv6 literal, which is left alone rather than guessed at.
+            if (host.count { it == ':' } != 1) return null
+            val port = host.substringAfter(':').asPortOrBlank()
+            return if (port.isEmpty()) null else host.substringBefore(':') to port
+        }
+
+        private val WHITESPACE = Regex("\\s+")
     }
 }
