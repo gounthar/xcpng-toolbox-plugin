@@ -12,12 +12,20 @@ environments, with power state and a state-dependent action menu. Start, resume,
 shutdown, force shutdown, take snapshot and revert to a snapshot all run against Xen Orchestra's
 REST API and have been exercised by clicking them.
 
-**Does not work:** connecting. Opening an IDE against a VM needs an SSH endpoint, and getting a
-trustworthy address is the open design problem — Xen Orchestra reports a VM's last known address
-whether or not it is running, so a halted VM can report one and a running VM often reports none.
-The plugin refuses to connect rather than handing the IDE an address it invented.
+**Written but not yet verified:** connecting. There is now a settings form for the pool URL and
+token, a pool-wide default SSH username, and a per-VM page for a username, an address override and
+a port; a VM whose address and username both resolve hands Toolbox a real SSH endpoint. **No IDE
+has actually been opened against a VM yet**, so treat "connecting works" as unproven until it has.
 
-Also missing: any settings UI (configuration is seeded by hand), and any tests.
+The reason an address override exists is worth stating, because it is the constraint the whole
+design bends around. Xen Orchestra reports a VM's *last known* address whether or not it is
+running: on the lab pool, four halted VMs served an address while only one of four running VMs
+did — and that one was the appliance itself. A guest with no XCP-ng agent reports nothing, ever,
+and no amount of waiting or subscribing changes that. Separately, **nothing in Xen Orchestra
+records an SSH username at all**, so that can only ever be configuration. The plugin still refuses
+rather than inventing either value.
+
+Also missing: any tests.
 
 ## Why Toolbox and not Gateway
 
