@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40" role="img" aria-label="XCP-ng virtual machine">
+  <rect x="4" y="7" width="32" height="9" rx="2" fill="none" stroke="#6B9BD1" stroke-width="2"/>
+  <rect x="4" y="24" width="32" height="9" rx="2" fill="none" stroke="#6B9BD1" stroke-width="2"/>
+  <circle cx="9" cy="11.5" r="1.5" fill="#6B9BD1"/>
+  <circle cx="9" cy="28.5" r="1.5" fill="#6B9BD1"/>
+  <path d="M20 16.5v7" stroke="#6B9BD1" stroke-width="2" stroke-linecap="round"/>
+</svg>

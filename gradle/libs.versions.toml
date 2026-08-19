@@ -1,0 +1,30 @@
+[versions]
+# Latest published at the time of writing. NOTE: maven-metadata.xml's <versions>
+# list for these artifacts is stale and lists neither this nor the version Coder
+# pins (1.10.76281); <latest>/<release> and the jars themselves are correct.
+# Re-check with:
+#   curl -s https://packages.jetbrains.team/maven/p/tbx/toolbox-api/com/jetbrains/toolbox/remote-dev-api/maven-metadata.xml | grep release
+toolbox-plugin-api = "1.10.80952"
+# Load-bearing, and measured rather than chosen. The Toolbox artifacts carry Kotlin
+# 2.3.0 binary metadata; building against them with Kotlin 2.1.10 fails with an
+# internal compiler error plus "Module was compiled with an incompatible version of
+# Kotlin" for every toolbox jar. Coder pins 2.3.10 for the same reason.
+kotlin = "2.3.10"
+coroutines = "1.10.2"
+# Bundled by Toolbox (kotlinx-serialization-json-jvm-1.9.0.jar in bin/lib) and matched by
+# Coder's provided-dependency filter, so it is compileOnly and never packaged.
+serialization = "1.9.0"
+
+[libraries]
+toolbox-core-api = { module = "com.jetbrains.toolbox:core-api", version.ref = "toolbox-plugin-api" }
+toolbox-ui-api = { module = "com.jetbrains.toolbox:ui-api", version.ref = "toolbox-plugin-api" }
+toolbox-remote-dev-api = { module = "com.jetbrains.toolbox:remote-dev-api", version.ref = "toolbox-plugin-api" }
+coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
+serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
+
+[bundles]
+toolbox-plugin-api = ["toolbox-core-api", "toolbox-ui-api", "toolbox-remote-dev-api"]
+
+[plugins]
+kotlin = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }

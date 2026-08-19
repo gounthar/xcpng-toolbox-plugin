@@ -1,0 +1,390 @@
+package dev.gounthar.xcpng.toolbox
+
+import com.jetbrains.toolbox.api.core.diagnostics.Logger
+import com.jetbrains.toolbox.api.localization.LocalizableString
+import com.jetbrains.toolbox.api.localization.LocalizableStringFactory
+import com.jetbrains.toolbox.api.remoteDev.EnvironmentVisibilityState
+import com.jetbrains.toolbox.api.remoteDev.RemoteProviderEnvironment
+import com.jetbrains.toolbox.api.remoteDev.environments.EnvironmentContentsView
+import com.jetbrains.toolbox.api.remoteDev.environments.SshEnvironmentContentsView
+import com.jetbrains.toolbox.api.remoteDev.ssh.SshConnectionInfo
+import com.jetbrains.toolbox.api.remoteDev.states.EnvironmentDescription
+import com.jetbrains.toolbox.api.remoteDev.states.RemoteEnvironmentState
+import com.jetbrains.toolbox.api.remoteDev.states.StandardRemoteEnvironmentState
+import com.jetbrains.toolbox.api.ui.ToolboxUi
+import com.jetbrains.toolbox.api.ui.actions.ActionDescription
+import com.jetbrains.toolbox.api.ui.actions.RunnableActionDescription
+import com.jetbrains.toolbox.api.ui.components.TextType
+import com.jetbrains.toolbox.api.ui.components.UiComponents
+import dev.gounthar.xcpng.toolbox.xo.XoClient
+import dev.gounthar.xcpng.toolbox.xo.XoPowerState
+import dev.gounthar.xcpng.toolbox.xo.XoSnapshot
+import dev.gounthar.xcpng.toolbox.xo.XoVm
+import dev.gounthar.xcpng.toolbox.xo.resumeVerb
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+
+/**
+ * One VM on a pool, presented to Toolbox as an environment.
+ *
+ * Toolbox deliberately gives a provider no lifecycle of its own: [RemoteEnvironmentAbility] runs
+ * to rename, always-connected and skip-delete-confirmation, and nothing else. Start and stop are
+ * the plugin's own calls surfaced through [actionsList], which is exactly why this project is a
+ * Toolbox provider rather than a Gateway connector.
+ *
+ * The instance is long-lived and mutated in place by [update]. That is not incidental: an
+ * environment recreated on every pool refresh would lose the transitional state an action just
+ * set, so a click on Start would flicker back to Halted a moment later and read as a broken
+ * button. [XcpngRemoteProvider] keeps these keyed by UUID for the same reason.
+ */
+class XcpngVmEnvironment(
+    initialVm: XoVm,
+    private val i18n: LocalizableStringFactory,
+    private val logger: Logger,
+    private val ui: ToolboxUi,
+    private val uiComponents: UiComponents,
+    private val scope: CoroutineScope,
+    /**
+     * A fresh client per call rather than a shared one. [dev.gounthar.xcpng.toolbox.xo.XoRestClient]
+     * holds no session — its `close()` is a no-op and every call opens its own connection — so
+     * this costs nothing and keeps the environment from outliving a client whose token has since
+     * been rotated in settings.
+     */
+    private val clientFactory: () -> XoClient,
+) : RemoteProviderEnvironment(initialVm.uuid) {
+
+    private var vm: XoVm = initialVm
+
+    init {
+        // nameFlow rather than the deprecated `name` setter, which the API now routes here anyway.
+        nameFlow.value = initialVm.nameLabel
+    }
+
+    override val state: MutableStateFlow<RemoteEnvironmentState> =
+        MutableStateFlow(initialVm.powerState.toToolboxState())
+
+    override val description: MutableStateFlow<EnvironmentDescription> =
+        MutableStateFlow(initialVm.toDescription())
+
+    override val actionsList: MutableStateFlow<List<ActionDescription>> =
+        MutableStateFlow(emptyList())
+
+    init {
+        // After the flows exist, or the first build would publish into an uninitialised field.
+        rebuildActions()
+    }
+
+    /**
+     * Adopt a newer view of this VM, from a pool refresh or from re-reading it after an action.
+     *
+     * Skips the write when nothing the UI shows has changed, so a refresh while the user is
+     * looking at the list does not churn three flows per VM for no reason.
+     */
+    fun update(fresh: XoVm) {
+        if (fresh == vm) return
+        vm = fresh
+        nameFlow.value = fresh.nameLabel
+        state.value = fresh.powerState.toToolboxState()
+        description.value = fresh.toDescription()
+        rebuildActions()
+    }
+
+    /**
+     * Toolbox reaches a VM over SSH, so this would be the [SshEnvironmentContentsView] variant.
+     *
+     * **Connecting is not implemented, and this refuses rather than guessing.** Getting a real
+     * address is the open design problem: `mainIpAddress` is only trustworthy while the VM is
+     * running, and on the lab pool 3 of 4 running VMs reported none at all. See the project notes.
+     *
+     * It refuses because the alternative was measured and is much worse. This used to return a
+     * hardcoded `127.0.0.1:22` as `root`, on the theory that a placeholder is harmless until the
+     * real thing arrives. It is not: Toolbox takes the address seriously, opens an SSH handshake
+     * against the user's own machine, and sits on it. The modal that appears has a Cancel button
+     * that cannot unwind a connect already in flight, so the whole application hangs and has to
+     * be killed from the task manager. Measured 2026-08-19 14:47, and it cost a force-kill in the
+     * middle of a test session.
+     *
+     * **It refuses quietly, and that part is also measured.** The first fix showed an explanatory
+     * popup from here. Toolbox calls `getContentsView()` on *every* environment of its own accord
+     * rather than only on the one the user clicked, so ten VMs meant ten modals to dismiss, on
+     * every refresh. Nothing in this method may touch [ui]: it is not a user-initiated callback.
+     * The reason goes in the exception, which Toolbox surfaces on a connect the user actually
+     * asked for.
+     *
+     * **And it refuses late.** Throwing from here refuses during *enumeration*. Toolbox calls
+     * this method on every environment of its own accord, so one throw per VM per refresh went
+     * into the log at ERROR with a full stack trace — ten a refresh on this pool, for VMs nobody
+     * had touched, still happening at 16:12 on 2026-08-19 with the popup long gone. The refusal
+     * belongs one level down, in [SshEnvironmentContentsView.getConnectionInfo], which Toolbox
+     * calls only when somebody actually connects.
+     *
+     * Returning a view is not the placeholder trap coming back. The trap was handing Toolbox an
+     * *address* — `127.0.0.1:22` as `root` — which it then dialled. Nothing here fabricates one:
+     * the view carries no endpoint, and asking it for one is what fails.
+     */
+    override suspend fun getContentsView(): EnvironmentContentsView = RefusedSshContentsView()
+
+    /**
+     * An SSH view with no endpoint, which says why when something asks for one.
+     *
+     * The reason is built on demand rather than when the view was constructed, because Toolbox
+     * caches a contents view and a VM's state moves underneath it. A VM started from its own row
+     * menu a moment after this was made would otherwise still be refused as halted.
+     */
+    private inner class RefusedSshContentsView : SshEnvironmentContentsView {
+        override suspend fun getConnectionInfo(): SshConnectionInfo {
+            val why = when {
+                vm.powerState != XoPowerState.RUNNING ->
+                    "\"${vm.nameLabel}\" is ${vm.powerState.name.lowercase()}. Start it first."
+                vm.mainIpAddress == null ->
+                    "\"${vm.nameLabel}\" is running but reports no IP address to the pool, so " +
+                        "there is nothing to connect to yet. This usually means the guest has no " +
+                        "XCP-ng agent installed."
+                else ->
+                    "\"${vm.nameLabel}\" reports ${vm.mainIpAddress}, but this plugin cannot " +
+                        "open an IDE against it yet: it has no way to know which user to log in as."
+            }
+            error("Cannot connect yet. $why Listing and power actions work; connecting does not.")
+        }
+    }
+
+    override fun setVisible(visibilityState: EnvironmentVisibilityState) {
+        // The provider refreshes the whole pool when its page becomes visible, which covers this.
+    }
+
+    // ---------------------------------------------------------------- actions
+
+    /**
+     * The buttons Toolbox shows for this VM, derived from its power state.
+     *
+     * Offering only what the current state allows is the point. XO answers a `start` on a
+     * suspended VM with an error, and an error a user provoked by clicking a button we chose to
+     * show reads as a broken plugin rather than as a wrong verb.
+     */
+    private fun rebuildActions() {
+        val actions = mutableListOf<ActionDescription>()
+
+        // One entry covers halted, suspended and paused; the verb differs per state and the
+        // mapping lives in XoPowerState.resumeVerb so there is exactly one of it.
+        vm.powerState.resumeVerb?.let { verb ->
+            actions += action(
+                when (vm.powerState) {
+                    XoPowerState.SUSPENDED -> "Resume"
+                    XoPowerState.PAUSED -> "Unpause"
+                    else -> "Start"
+                },
+                busyState = StandardRemoteEnvironmentState.Activating,
+                // Also measured: clicking Start on a VM that somebody else already started gives
+                // VM_BAD_POWER_STATE(ref, expected, actual). The list is only as fresh as the last
+                // refresh, so this is an ordinary race rather than a fault.
+                hint = { detail ->
+                    // Parenthesised deliberately: `.takeIf` binds to the literal it follows, so
+                    // without these the hint is never null and reads "... re-read from null".
+                    ("The VM is no longer in the state this list showed. It has been re-read from " +
+                        "the pool.")
+                        .takeIf { "VM_BAD_POWER_STATE" in detail }
+                },
+            ) { client -> verb(client, vm) }
+        }
+
+        if (vm.powerState == XoPowerState.RUNNING) {
+            actions += action(
+                "Shut down",
+                busyState = StandardRemoteEnvironmentState.Hibernating,
+                // Measured against alpine-test-3 on 2026-08-19: XO answers 500 with the raw XAPI
+                // code and nothing a user can act on. The code is the whole diagnosis, so say what
+                // it means and what to click instead.
+                hint = { detail ->
+                    ("The guest has no XCP-ng agent listening, so it cannot be asked to shut itself " +
+                        "down. Use \"Force shut down\" instead.")
+                        .takeIf { "VM_LACKS_FEATURE" in detail }
+                },
+            ) { client -> client.cleanShutdown(vm) }
+            // Not an advanced extra. `clean_shutdown` asks the guest to shut itself down and
+            // fails when nothing is listening, and on the lab pool only 1 of 4 running VMs was
+            // reporting to the host at all. Without this, those VMs cannot be stopped from here.
+            actions += action(
+                "Force shut down",
+                busyState = StandardRemoteEnvironmentState.Hibernating,
+                dangerous = true,
+                confirm = "Cut the power to \"${vm.nameLabel}\"? The guest gets no chance to " +
+                    "flush anything to disk. Use this when a clean shut down has failed.",
+            ) { client -> client.hardShutdown(vm) }
+        }
+
+        actions += snapshotAction()
+        actions += revertAction()
+
+        actionsList.value = actions
+    }
+
+    /** Take a snapshot, naming it. Offered in every state; XO snapshots a running VM happily. */
+    private fun snapshotAction(): ActionDescription = action("Take snapshot…", busyState = null) { client ->
+        val typed = ui.showTextInputPopup(
+            i18n.ptrl("Take a snapshot"),
+            i18n.pnotr("Snapshot \"${vm.nameLabel}\"."),
+            i18n.ptrl("Snapshot name"),
+            TextType.General,
+            i18n.ptrl("Take snapshot"),
+            i18n.ptrl("Cancel"),
+        )
+        if (typed == null) {
+            logger.info("XCP-ng: snapshot of ${vm.uuid} cancelled.")
+            return@action
+        }
+        // Clicking through without typing is not a cancel, but a nameless snapshot is one nobody
+        // can identify in six weeks, so it gets a timestamped name rather than an empty one.
+        val label = typed.trim().ifEmpty { "toolbox-${System.currentTimeMillis() / 1000}" }
+        val id = client.snapshot(vm, label)
+        logger.info("XCP-ng: snapshotted ${vm.uuid} as \"$label\" (id ${id ?: "not reported"}).")
+    }
+
+    /**
+     * Roll back to a snapshot, chosen from a dropdown on a [SnapshotPickerPage].
+     *
+     * [busyState] is deliberately null here even though this action does change the VM. The busy
+     * state is set by hand *after* the user has chosen, because the picker can sit open for as
+     * long as it takes someone to read a list of snapshot names, and a row showing "Restarting"
+     * that whole time is a lie about what the pool is doing.
+     */
+    private fun revertAction(): ActionDescription = action(
+        "Revert to snapshot…",
+        busyState = null,
+        dangerous = true,
+    ) { client ->
+        val snapshots = client.listSnapshots(vm)
+        if (snapshots.isEmpty()) {
+            ui.showInfoPopup(
+                i18n.ptrl("No snapshots"),
+                i18n.pnotr("\"${vm.nameLabel}\" has no snapshots to revert to."),
+                i18n.ptrl("OK"),
+            )
+            return@action
+        }
+        val chosen = CompletableDeferred<XoSnapshot?>()
+        ui.showUiPageSuspending(
+            SnapshotPickerPage(vm.nameLabel, snapshots, i18n, uiComponents) { chosen.complete(it) },
+        )
+        // The page answers exactly once, including on every dismissal path, so this cannot hang.
+        val snapshot = chosen.await() ?: run {
+            logger.info("XCP-ng: revert of ${vm.uuid} cancelled.")
+            return@action
+        }
+        state.value = StandardRemoteEnvironmentState.Restarting
+        client.revertSnapshot(vm, snapshot.id)
+        logger.info("XCP-ng: reverted ${vm.uuid} to snapshot ${snapshot.id}.")
+    }
+
+    /**
+     * Builds one button.
+     *
+     * [busyState] is shown while the call is in flight and then thrown away, because the state
+     * that gets published afterwards is re-read from the pool rather than assumed. `sync=true`
+     * means XO answers when the work is done, so the window is short — but a Start that takes
+     * four seconds with no visible change is indistinguishable from a dead button.
+     */
+    private fun action(
+        label: String,
+        busyState: RemoteEnvironmentState?,
+        dangerous: Boolean = false,
+        confirm: String? = null,
+        /**
+         * Turns XO's failure text into something a user can act on, or null to show it raw.
+         *
+         * Takes the detail rather than being a fixed string so it can fire only for the code it
+         * explains. A hint that appears under every failure teaches people to ignore hints.
+         */
+        hint: (String) -> String? = { null },
+        block: suspend (XoClient) -> Unit,
+    ): ActionDescription = object : RunnableActionDescription {
+        override val label: LocalizableString = i18n.ptrl(label)
+        override val isDangerous: Boolean = dangerous
+
+        // Runnable, so this returns immediately and the work goes to the plugin's scope. Blocking
+        // here would block whatever Toolbox thread dispatches the click.
+        override fun run() {
+            scope.launch {
+                if (confirm != null) {
+                    val ok = ui.showOkCancelPopup(
+                        i18n.ptrl(label),
+                        i18n.pnotr(confirm),
+                        i18n.ptrl(label),
+                        i18n.ptrl("Cancel"),
+                    )
+                    if (!ok) return@launch
+                }
+                if (busyState != null) state.value = busyState
+                val failure = runCatching { clientFactory().use { block(it) } }.exceptionOrNull()
+                // Re-read before reporting, not after. The pool is the authority on what state the
+                // VM ended in — a refused clean shutdown leaves it running — and doing this first
+                // means the row behind the popup is already correct when the user dismisses it.
+                refreshSelf()
+                if (failure == null) return@launch
+                logger.error(failure, "XCP-ng: \"$label\" failed on ${vm.uuid}")
+                val detail = failure.message ?: failure.toString()
+                ui.showInfoPopup(
+                    i18n.ptrl("$label failed"),
+                    i18n.pnotr(hint(detail)?.let { "$it\n\n$detail" } ?: detail),
+                    i18n.ptrl("OK"),
+                )
+            }
+        }
+    }
+
+    /**
+     * Re-read this VM and republish. Silent on failure: a refresh is not worth a popup.
+     *
+     * Republishes [state] unconditionally, and that is load-bearing rather than defensive.
+     * [update] skips everything when the pool reports no change, but the busy state an action sets
+     * before calling out is **not** derived from [vm] — so an action that leaves the VM exactly as
+     * it found it would return to a row still showing `Activating` or `Restarting`, with nothing
+     * left to ever clear it. Measured 2026-08-19: "Revert to snapshot" on a VM with no snapshots
+     * showed its popup and stranded the row on Restarting permanently.
+     *
+     * Writing the same value back costs nothing — [MutableStateFlow] only emits on a distinct
+     * value — so this is free in the ordinary case.
+     */
+    private suspend fun refreshSelf() {
+        runCatching { clientFactory().use { it.getVm(vm.uuid) } }
+            .onSuccess { fresh ->
+                if (fresh == null) {
+                    // Deleted in XO while it was on screen. The provider's next refresh drops it
+                    // from the list; until then, say so rather than showing a stale power state.
+                    state.value = StandardRemoteEnvironmentState.Deleted
+                } else {
+                    update(fresh)
+                    state.value = fresh.powerState.toToolboxState()
+                }
+            }
+            .onFailure {
+                logger.warn(it, "XCP-ng: could not re-read ${vm.uuid} after an action")
+                // The re-read is what normally clears a busy state, so a failed one must put the
+                // last known state back rather than leaving the row mid-transition for good.
+                state.value = vm.powerState.toToolboxState()
+            }
+    }
+
+    private fun XoVm.toDescription(): EnvironmentDescription =
+        // pnotr is "plain, not translated". A VM's name, state and UUID are not translatable.
+        Description(i18n.pnotr("${powerState.name.lowercase()} · ${uuid.take(8)}"))
+
+    private class Description(override val description: LocalizableString) : EnvironmentDescription
+}
+
+/**
+ * XAPI power states mapped onto Toolbox's vocabulary.
+ *
+ * Toolbox's state names come from a container world, so the mapping is a judgement rather than a
+ * translation: a halted VM is [StandardRemoteEnvironmentState.Inactive] rather than Hibernated,
+ * because Hibernated implies saved memory, which is what XAPI calls Suspended.
+ */
+private fun XoPowerState.toToolboxState(): RemoteEnvironmentState = when (this) {
+    XoPowerState.RUNNING -> StandardRemoteEnvironmentState.Active
+    XoPowerState.HALTED -> StandardRemoteEnvironmentState.Inactive
+    XoPowerState.SUSPENDED -> StandardRemoteEnvironmentState.Hibernated
+    XoPowerState.PAUSED -> StandardRemoteEnvironmentState.Hibernated
+    XoPowerState.UNKNOWN -> StandardRemoteEnvironmentState.Unreachable
+}

@@ -1,0 +1,14 @@
+# Gradle
+build/
+.gradle/
+.kotlin/
+
+# IDE
+.idea/
+*.iml
+out/
+
+# Secrets and local config
+.env
+*.credentials.json
+*.token
