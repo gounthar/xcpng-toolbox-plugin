@@ -121,36 +121,21 @@ class ConnectionSettingsPage(
      * Writes back into the fields rather than only into the stored value, so the page carries the
      * corrected form if it is shown again — the fields are the one part of a `UiPage` that has
      * been seen to render reliably.
+     *
+     * The rules themselves live in [normalise], which is a pure function of three strings. Keeping
+     * them out of here is what makes them testable: constructing this page needs a `UiPage`, a
+     * `LocalizableStringFactory` and three `TextField`s, none of which a unit test can supply
+     * without standing up half of Toolbox.
      */
     private fun normaliseFields() {
-        // Anything after whitespace is not part of a hostname. Taking the first token turns a
-        // fumbled paste into something usable rather than storing a string SSH will choke on.
-        var host = hostField.textState.value.trim().substringBefore(' ').trim()
-
-        host.substringBefore('@', missingDelimiterValue = "")
-            .takeIf { it.isNotEmpty() }
-            ?.let { typedUser ->
-                host = host.substringAfter('@')
-                // An explicit username already in its own field wins. The prefix still comes off
-                // the address either way, because it can never be part of one.
-                if (userField.textState.value.isBlank()) userField.textState.value = typedUser
-            }
-
-        // Bracketed IPv6 keeps its colons; a bare host:port does not. Anything unparseable as a
-        // port is dropped rather than guessed at.
-        if (!host.startsWith("[") && host.count { it == ':' } == 1) {
-            val port = host.substringAfter(':')
-            port.trim().toIntOrNull()?.takeIf { it in 1..65535 }?.let {
-                host = host.substringBefore(':')
-                if (portField.textState.value.isBlank()) portField.textState.value = it.toString()
-            }
-        }
-
-        hostField.textState.value = host
-        // A port that survived here but is not a usable number would otherwise be stored as one.
-        if (portField.textState.value.trim().toIntOrNull()?.takeIf { it in 1..65535 } == null) {
-            portField.textState.value = ""
-        }
+        val normalised = normalise(
+            user = userField.textState.value,
+            host = hostField.textState.value,
+            port = portField.textState.value,
+        )
+        userField.textState.value = normalised.user
+        hostField.textState.value = normalised.host
+        portField.textState.value = normalised.port
     }
 
     private fun hostPlaceholder(): String {
@@ -159,6 +144,58 @@ class ConnectionSettingsPage(
             reported != null -> "Pool reports $reported"
             vm.powerState == XoPowerState.RUNNING -> "Running, but reports no address"
             else -> "VM is not running, so the pool reports nothing live"
+        }
+    }
+
+    /** What the three connection fields hold, before or after [normalise]. */
+    internal data class Fields(val user: String, val host: String, val port: String)
+
+    companion object {
+        /**
+         * The address field, rewritten into the three fields it was trying to be.
+         *
+         * Pure on purpose; see [normaliseFields]. Every rule here exists because the address field
+         * is the one place a user types free text, and what they type is usually a working SSH
+         * argument — `root@host`, `host:2222` — rather than a bare address.
+         *
+         * Nothing is rejected. That is forced rather than preferred: a `UiPage` on this Toolbox
+         * build has no way to say why it refused, measured three ways on 2026-08-19, so a refusal
+         * would be silent and would read as a successful save.
+         */
+        internal fun normalise(user: String, host: String, port: String): Fields {
+            var resolvedUser = user
+            var resolvedPort = port
+
+            // Anything after whitespace is not part of a hostname. Taking the first token turns a
+            // fumbled paste into something usable rather than storing a string SSH will choke on.
+            var resolvedHost = host.trim().substringBefore(' ').trim()
+
+            resolvedHost.substringBefore('@', missingDelimiterValue = "")
+                .takeIf { it.isNotEmpty() }
+                ?.let { typedUser ->
+                    resolvedHost = resolvedHost.substringAfter('@')
+                    // An explicit username already in its own field wins. The prefix still comes
+                    // off the address either way, because it can never be part of one.
+                    if (resolvedUser.isBlank()) resolvedUser = typedUser
+                }
+
+            // Bracketed IPv6 keeps its colons; a bare host:port does not. Anything unparseable as
+            // a port is dropped rather than guessed at.
+            if (!resolvedHost.startsWith("[") && resolvedHost.count { it == ':' } == 1) {
+                val typedPort = resolvedHost.substringAfter(':')
+                typedPort.trim().toIntOrNull()?.takeIf { it in 1..65535 }?.let {
+                    resolvedHost = resolvedHost.substringBefore(':')
+                    if (resolvedPort.isBlank()) resolvedPort = it.toString()
+                }
+            }
+
+            // A port that survived here but is not a usable number would otherwise be stored as
+            // one.
+            if (resolvedPort.trim().toIntOrNull()?.takeIf { it in 1..65535 } == null) {
+                resolvedPort = ""
+            }
+
+            return Fields(resolvedUser, resolvedHost, resolvedPort)
         }
     }
 }
