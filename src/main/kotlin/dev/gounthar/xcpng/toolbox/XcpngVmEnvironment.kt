@@ -50,6 +50,7 @@ class XcpngVmEnvironment(
     private val ui: ToolboxUi,
     private val uiComponents: UiComponents,
     private val statePalette: EnvironmentStateColorPalette,
+    private val settings: XoSettings,
     private val scope: CoroutineScope,
     /**
      * A fresh client per call rather than a shared one. [dev.gounthar.xcpng.toolbox.xo.XoRestClient]
@@ -97,63 +98,78 @@ class XcpngVmEnvironment(
     }
 
     /**
-     * Toolbox reaches a VM over SSH, so this would be the [SshEnvironmentContentsView] variant.
+     * Toolbox reaches a VM over SSH, so this is the [SshEnvironmentContentsView] variant.
      *
-     * **Connecting is not implemented, and this refuses rather than guessing.** Getting a real
-     * address is the open design problem: `mainIpAddress` is only trustworthy while the VM is
-     * running, and on the lab pool 3 of 4 running VMs reported none at all. See CLAUDE.md.
+     * **This method answers unconditionally and decides nothing.** All three reasons are about
+     * *when* Toolbox calls it rather than what it returns, and each was paid for once.
      *
-     * It refuses because the alternative was measured and is much worse. This used to return a
-     * hardcoded `127.0.0.1:22` as `root`, on the theory that a placeholder is harmless until the
-     * real thing arrives. It is not: Toolbox takes the address seriously, opens an SSH handshake
-     * against the user's own machine, and sits on it. The modal that appears has a Cancel button
-     * that cannot unwind a connect already in flight, so the whole application hangs and has to
-     * be killed from the task manager. Measured 2026-08-19 14:47, and it cost a force-kill in the
-     * middle of a test session.
+     * **It must never fabricate an endpoint.** This used to return a hardcoded `127.0.0.1:22` as
+     * `root`, on the theory that a placeholder is harmless until the real thing arrives. It is
+     * not: Toolbox takes the address seriously, opens an SSH handshake against the user's own
+     * machine, and sits on it. The modal that appears has a Cancel button that cannot unwind a
+     * connect already in flight, so the whole application hangs and has to be killed from the task
+     * manager. Measured 2026-08-19 14:47, and it cost a force-kill mid-session.
      *
-     * **It refuses quietly, and that part is also measured.** The first fix showed an explanatory
-     * popup from here. Toolbox calls `getContentsView()` on *every* environment of its own accord
-     * rather than only on the one the user clicked, so ten VMs meant ten modals to dismiss, on
-     * every refresh. Nothing in this method may touch [ui]: it is not a user-initiated callback.
-     * The reason goes in the exception, which Toolbox surfaces on a connect the user actually
-     * asked for.
+     * **It must never touch [ui].** An early fix showed an explanatory popup from here. Toolbox
+     * calls this on *every* environment of its own accord rather than only on the one the user
+     * clicked, so ten VMs meant ten modals to dismiss, on every refresh. This is not a
+     * user-initiated callback and nothing modal belongs in it.
      *
-     * **And it refuses late.** Throwing from here refuses during *enumeration*. Toolbox calls
-     * this method on every environment of its own accord, so one throw per VM per refresh went
-     * into the log at ERROR with a full stack trace — ten a refresh on this pool, for VMs nobody
-     * had touched, still happening at 16:12 on 2026-08-19 with the popup long gone. The refusal
-     * belongs one level down, in [SshEnvironmentContentsView.getConnectionInfo], which Toolbox
-     * calls only when somebody actually connects.
-     *
-     * Returning a view is not the placeholder trap coming back. The trap was handing Toolbox an
-     * *address* — `127.0.0.1:22` as `root` — which it then dialled. Nothing here fabricates one:
-     * the view carries no endpoint, and asking it for one is what fails.
+     * **It must never throw.** Throwing here refuses during *enumeration*, which put one stack
+     * trace per VM per refresh into the log at ERROR — eleven per launch on this pool, for VMs
+     * nobody had touched, through to 16:12 on 2026-08-19. Anything that can fail belongs one
+     * level down in [VmSshContentsView.getConnectionInfo], which Toolbox calls only when somebody
+     * actually connects.
      */
-    override suspend fun getContentsView(): EnvironmentContentsView = RefusedSshContentsView()
+    override suspend fun getContentsView(): EnvironmentContentsView = VmSshContentsView()
 
     /**
-     * An SSH view with no endpoint, which says why when something asks for one.
+     * Where the VM's SSH endpoint is worked out, or the reason there isn't one.
      *
-     * The reason is built on demand rather than when the view was constructed, because Toolbox
-     * caches a contents view and a VM's state moves underneath it. A VM started from its own row
-     * menu a moment after this was made would otherwise still be refused as halted.
+     * Resolved on demand rather than when the view was constructed, because Toolbox caches a
+     * contents view and a VM's state moves underneath it. A VM started from its own row menu a
+     * moment after this was made would otherwise still be refused as halted.
+     *
+     * The address may come from the pool or from the user (see [ConnectionSettingsPage]); the
+     * username can only ever come from the user, because no Xen Orchestra field carries one.
      */
-    private inner class RefusedSshContentsView : SshEnvironmentContentsView {
+    private inner class VmSshContentsView : SshEnvironmentContentsView {
         override suspend fun getConnectionInfo(): SshConnectionInfo {
-            val why = when {
-                vm.powerState != XoPowerState.RUNNING ->
-                    "\"${vm.nameLabel}\" is ${vm.powerState.name.lowercase()}. Start it first."
-                vm.mainIpAddress == null ->
-                    "\"${vm.nameLabel}\" is running but reports no IP address to the pool, so " +
-                        "there is nothing to connect to yet. This usually means the guest has no " +
-                        "XCP-ng agent installed."
-                else ->
-                    "\"${vm.nameLabel}\" reports ${vm.mainIpAddress}, but this plugin cannot " +
-                        "open an IDE against it yet: it has no way to know which user to log in as."
+            // A halted VM is refused before the address is even considered. An override typed for
+            // a VM that is switched off is not wrong, it is just not connectable yet, and "start
+            // it first" is the actionable thing to say.
+            if (vm.powerState != XoPowerState.RUNNING) {
+                throw CannotConnectYet(
+                    "\"${vm.nameLabel}\" is ${vm.powerState.name.lowercase()}. Start it first.",
+                )
             }
-            throw CannotConnectYet(
-                "$why Listing and power actions work; connecting does not.",
+            // The override wins over the pool. That ordering is the point of having one: the pool
+            // is the thing that could not answer.
+            val host = settings.sshHostFor(vm.uuid) ?: vm.mainIpAddress ?: throw CannotConnectYet(
+                "\"${vm.nameLabel}\" is running but reports no address to the pool, which " +
+                    "usually means the guest has no XCP-ng agent. Set one under " +
+                    "\"Connection settings…\" in this VM's menu.",
             )
+            val user = settings.sshUserFor(vm.uuid) ?: settings.defaultSshUser
+                ?: throw CannotConnectYet(
+                    "\"${vm.nameLabel}\" is reachable at $host, but no SSH username is set. " +
+                        "Nothing in Xen Orchestra records one, so it has to be given under " +
+                        "\"Connection settings…\" in this VM's menu, or as a pool-wide default " +
+                        "in the provider's settings.",
+                )
+            val sshPort = settings.sshPortFor(vm.uuid)
+            logger.info("XCP-ng: connecting to ${vm.uuid} as $user@$host:$sshPort.")
+            // Only host, port and userName are abstract. Everything about authentication is a
+            // default and the defaults are the ones we want, verified by disassembling the
+            // installed runtime on 2026-08-19: shouldUseSystemConfiguration and
+            // shouldUseSystemSshAgent are both true, and shouldAskForPassword is true. So the
+            // user's own ~/.ssh/config, keys and agent apply, with a password prompt as the
+            // fallback, and this plugin never handles a credential. See CLAUDE.md.
+            return object : SshConnectionInfo {
+                override val host: String = host
+                override val port: Int = sshPort
+                override val userName: String = user
+            }
         }
     }
 
@@ -223,6 +239,7 @@ class XcpngVmEnvironment(
 
         actions += snapshotAction()
         actions += revertAction()
+        actions += connectionSettingsAction()
 
         actionsList.value = actions
     }
@@ -283,6 +300,28 @@ class XcpngVmEnvironment(
         client.revertSnapshot(vm, snapshot.id)
         logger.info("XCP-ng: reverted ${vm.uuid} to snapshot ${snapshot.id}.")
     }
+
+    /**
+     * Where the username and the address override are set.
+     *
+     * Offered in every power state on purpose. The natural instinct is to show it only when a
+     * connect has already failed, but the case it exists for — a guest with no agent, which will
+     * never report an address — is a VM the user knows about in advance and can configure while
+     * it is still switched off.
+     */
+    private fun connectionSettingsAction(): ActionDescription =
+        action("Connection settings\u2026", busyState = null) {
+            ui.showUiPageSuspending(
+                ConnectionSettingsPage(
+                    vm,
+                    settings,
+                    i18n,
+                    onSaved = {
+                        logger.info("XCP-ng: connection settings saved for ${vm.uuid}.")
+                    },
+                ),
+            )
+        }
 
     /**
      * Builds one button.
