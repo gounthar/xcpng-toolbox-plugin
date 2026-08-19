@@ -151,7 +151,9 @@ class XcpngVmEnvironment(
                     "\"${vm.nameLabel}\" reports ${vm.mainIpAddress}, but this plugin cannot " +
                         "open an IDE against it yet: it has no way to know which user to log in as."
             }
-            error("Cannot connect yet. $why Listing and power actions work; connecting does not.")
+            throw CannotConnectYet(
+                "$why Listing and power actions work; connecting does not.",
+            )
         }
     }
 
@@ -419,3 +421,18 @@ class XcpngVmEnvironment(
     private class Description(override val description: LocalizableString) : EnvironmentDescription
 }
 
+/**
+ * Refusal to open an IDE against a VM, thrown from
+ * [XcpngVmEnvironment.RefusedSshContentsView.getConnectionInfo].
+ *
+ * **The class name is the headline the user reads**, which is the whole reason this type exists.
+ * Measured on Toolbox 3.7.0.87111, 2026-08-19: a failed connect puts `Fatal error: <SimpleName>`
+ * on the environment row, with the message itself one click away behind a "Troubleshooting" link.
+ * `error(...)` throws [IllegalStateException], so the most prominent word shown to somebody who
+ * clicked Connect was a Java type.
+ *
+ * Keep the name a readable phrase, and keep the specifics in the message where the detail view
+ * shows them: the three cases this covers — halted, running with no address, running with an
+ * address but no known username — cannot all fit in one class name.
+ */
+class CannotConnectYet(message: String) : IllegalStateException("Cannot connect yet. $message")
