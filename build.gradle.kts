@@ -75,7 +75,7 @@ val generateExtensionJson by tasks.registering {
               "version": "$version",
               "apiVersion": "$apiVersion",
               "meta": {
-                "readableName": "XCP-ng",
+                "readableName": "XCP-ng (unofficial)",
                 "description": "Open a JetBrains IDE against a VM on an XCP-ng pool.",
                 "vendor": "gounthar",
                 "url": "https://github.com/gounthar/xcpng-toolbox-plugin"
