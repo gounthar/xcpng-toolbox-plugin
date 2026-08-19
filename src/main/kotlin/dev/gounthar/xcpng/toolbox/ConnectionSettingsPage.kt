@@ -72,11 +72,11 @@ class ConnectionSettingsPage(
     /**
      * Where a rejected save says why.
      *
-     * Field-level validators are not enough on their own. `RunnableActionDescription.validate()`
-     * defaults to true and the address field's validator does reject `user@host`, yet a save with
-     * that value in it still wrote it to disk — measured 2026-08-19 by typing it and then reading
-     * `settings.json`. Whatever the field validator gates, it is not the action, so the check that
-     * actually protects the stored value has to run inside the button.
+     * Field-level validators do nothing here. `RunnableActionDescription.validate()` defaults to
+     * true and the address field's validator does reject `user@host`, yet typing that and pressing
+     * Save wrote it to disk **and displayed no message at all** — measured 2026-08-19, by typing
+     * it and then reading `settings.json`. So the validator neither blocks the action nor shows
+     * the user anything, and the only check that protects a stored value is one inside the button.
      */
     private val errorField = ValidationErrorField(i18n.pnotr(""))
 
