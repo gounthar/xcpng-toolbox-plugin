@@ -3,6 +3,12 @@
 A JetBrains Toolbox remote-development provider for XCP-ng, so a VM on a pool shows up as a
 development environment you can open an IDE against.
 
+**Unofficial, and not a Vates project.** This is a personal project that talks to XCP-ng and Xen
+Orchestra from the outside, using their public REST API. It is not built, endorsed or supported by
+Vates, and the name is used only to say what it connects to. It ships no Vates artwork: the icon is
+an original mark, deliberately not the XCP-ng logo. Bugs here are mine, not theirs — report them on
+this repository rather than to XCP-ng.
+
 ## Status
 
 Early, and honest about which half works.
