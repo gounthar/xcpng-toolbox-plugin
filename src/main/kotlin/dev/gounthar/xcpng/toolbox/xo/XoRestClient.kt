@@ -207,13 +207,21 @@ class XoRestClient(
     private fun quote(s: String) = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 }
 
-private fun JsonObject.str(key: String): String? =
+internal fun JsonObject.str(key: String): String? =
     this[key]?.takeIf { it !is kotlinx.serialization.json.JsonNull }?.jsonPrimitive?.contentOrNull
 
 private val kotlinx.serialization.json.JsonPrimitive.contentOrNull: String?
     get() = runCatching { content }.getOrNull()?.takeIf { it.isNotBlank() }
 
-private fun JsonObject.toXoVm(): XoVm = XoVm(
+/**
+ * One VM object from XO, as the plugin's own model.
+ *
+ * `internal` rather than private so a test can hold it against captured XO JSON. That is worth a
+ * widened visibility: the `mainIpAddress` rule below is the single measured behaviour the plugin
+ * most depends on, and it is invisible from the outside — a client that returned the stale
+ * address would look entirely healthy until an IDE tried to dial it.
+ */
+internal fun JsonObject.toXoVm(): XoVm = XoVm(
     uuid = str("uuid") ?: str("id") ?: error("VM object has neither uuid nor id"),
     nameLabel = str("name_label") ?: "(unnamed)",
     powerState = when (str("power_state")) {
