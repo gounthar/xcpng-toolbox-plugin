@@ -9,6 +9,7 @@ import com.jetbrains.toolbox.api.ui.components.TextType
 import com.jetbrains.toolbox.api.ui.components.UiField
 import com.jetbrains.toolbox.api.ui.components.UiPage
 import com.jetbrains.toolbox.api.ui.components.ValidationResult
+import dev.gounthar.xcpng.toolbox.xo.XoPowerState
 import dev.gounthar.xcpng.toolbox.xo.XoVm
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -30,14 +31,6 @@ class ConnectionSettingsPage(
     private val vm: XoVm,
     private val settings: XoSettings,
     private val i18n: LocalizableStringFactory,
-    /**
-     * How a rejected save tells the user why.
-     *
-     * A callback rather than a field on the page, because the page cannot render one — see the
-     * note on the save button — and because `ToolboxUi.showInfoPopup` is suspending and this class
-     * has no scope to launch it on. The caller owns both.
-     */
-    private val showProblem: (String) -> Unit,
     private val onSaved: () -> Unit,
 ) : UiPage(MutableStateFlow(i18n.pnotr("Connection — \"${vm.nameLabel}\""))) {
 
@@ -65,7 +58,7 @@ class ConnectionSettingsPage(
         false,
         null,
         i18n.pnotr(hostPlaceholder()),
-    ) { asValidation(hostProblem(it)) }
+    ) { ValidationResult.Valid }
 
     private val portField = TextField(
         i18n.ptrl("SSH port"),
@@ -74,7 +67,7 @@ class ConnectionSettingsPage(
         false,
         null,
         i18n.pnotr(XoSettings.DEFAULT_SSH_PORT.toString()),
-    ) { asValidation(portProblem(it)) }
+    ) { ValidationResult.Valid }
 
     override val fields: StateFlow<List<UiField>> =
         MutableStateFlow(listOf(userField, hostField, portField))
@@ -90,34 +83,26 @@ class ConnectionSettingsPage(
             object : RunnableActionDescription {
                 override val label: LocalizableString = i18n.ptrl("Save")
 
-                // A getter, not a constant: it is answered from whatever is in the fields at the
-                // moment of the click, so an invalid save leaves the page up with its reason on it
-                // rather than closing and discarding what the user typed.
-                override val shouldClosePage: Boolean get() = firstProblem() == null
-
                 /**
-                 * Two mechanisms for telling the user were tried here and neither rendered
-                 * anything, both measured on 2026-08-19 by typing `root@192.168.1.99` into the
-                 * address field and pressing Save.
+                 * Rewrites what was typed into the fields it belongs in, then stores it.
                  *
-                 * First the field validator, which `TextField` takes as its seventh argument and
-                 * which correctly rejects that input: the value was written to `settings.json`
-                 * and no message appeared. Then a check in here plus a [ValidationErrorField] on
-                 * the page: the write was correctly blocked — verified by reading the file back,
-                 * the key stayed empty — and still no message appeared, which is worse, because a
-                 * silent refusal reads as a successful save.
+                 * It does not reject, and that is a decision forced by measurement rather than a
+                 * preference. Rejecting needs a way to say why, and on this Toolbox build a
+                 * `UiPage` has none: the field validator's `ValidationResult.Invalid` renders
+                 * nothing, a `ValidationErrorField` in [fields] renders nothing, and
+                 * `ToolboxUi.showInfoPopup` renders nothing either — all three measured on
+                 * 2026-08-19 by typing `root@192.168.1.99` and pressing Save. The same popup call
+                 * works from a row's action menu, so the difference is that a page is open over
+                 * it.
                  *
-                 * So the reason goes through [showProblem] to `ToolboxUi.showInfoPopup`, which
-                 * this project has watched work. That is not a return to the popup this codebase
-                 * removed: the rule from that one is that a method **Toolbox** calls for
-                 * enumeration must never be modal. A Save the user clicked is the opposite case.
+                 * A refusal nobody can see is worse than the bug it replaced: the value stayed
+                 * out of `settings.json`, which was correct, and the person testing it reported it
+                 * as saved. So the failure case is removed instead of reported. `root@host` is not
+                 * ambiguous about what was meant, and the split is visible on the fields the next
+                 * time the page is opened.
                  */
                 override fun run() {
-                    val problem = firstProblem()
-                    if (problem != null) {
-                        showProblem(problem)
-                        return
-                    }
+                    normaliseFields()
                     settings.setSshOverrides(
                         vm.uuid,
                         user = userField.textState.value,
@@ -130,47 +115,50 @@ class ConnectionSettingsPage(
         ),
     )
 
-    /** The first thing wrong with the form, or null when it is safe to store. */
-    private fun firstProblem(): String? =
-        hostProblem(hostField.textState.value) ?: portProblem(portField.textState.value)
+    /**
+     * Moves a username or a port out of the address field and into its own.
+     *
+     * Writes back into the fields rather than only into the stored value, so the page carries the
+     * corrected form if it is shown again — the fields are the one part of a `UiPage` that has
+     * been seen to render reliably.
+     */
+    private fun normaliseFields() {
+        // Anything after whitespace is not part of a hostname. Taking the first token turns a
+        // fumbled paste into something usable rather than storing a string SSH will choke on.
+        var host = hostField.textState.value.trim().substringBefore(' ').trim()
+
+        host.substringBefore('@', missingDelimiterValue = "")
+            .takeIf { it.isNotEmpty() }
+            ?.let { typedUser ->
+                host = host.substringAfter('@')
+                // An explicit username already in its own field wins. The prefix still comes off
+                // the address either way, because it can never be part of one.
+                if (userField.textState.value.isBlank()) userField.textState.value = typedUser
+            }
+
+        // Bracketed IPv6 keeps its colons; a bare host:port does not. Anything unparseable as a
+        // port is dropped rather than guessed at.
+        if (!host.startsWith("[") && host.count { it == ':' } == 1) {
+            val port = host.substringAfter(':')
+            port.trim().toIntOrNull()?.takeIf { it in 1..65535 }?.let {
+                host = host.substringBefore(':')
+                if (portField.textState.value.isBlank()) portField.textState.value = it.toString()
+            }
+        }
+
+        hostField.textState.value = host
+        // A port that survived here but is not a usable number would otherwise be stored as one.
+        if (portField.textState.value.trim().toIntOrNull()?.takeIf { it in 1..65535 } == null) {
+            portField.textState.value = ""
+        }
+    }
 
     private fun hostPlaceholder(): String {
         val reported = vm.mainIpAddress
         return when {
             reported != null -> "Pool reports $reported"
-            vm.powerState == dev.gounthar.xcpng.toolbox.xo.XoPowerState.RUNNING ->
-                "Running, but reports no address"
+            vm.powerState == XoPowerState.RUNNING -> "Running, but reports no address"
             else -> "VM is not running, so the pool reports nothing live"
         }
     }
-
-    /**
-     * The checks themselves return the message, and both the field validator and the save button
-     * ask them. Duplicating the rules in a second place is how the two drift until the form says
-     * one thing and the stored value is another.
-     */
-    private fun hostProblem(raw: String): String? {
-        val text = raw.trim()
-        // Empty is the normal case: it means "fall back to what the pool reports".
-        if (text.isEmpty()) return null
-        // A pasted "user@host" or "host:port" would be stored verbatim and then handed to SSH as a
-        // hostname, which fails somewhere far from here with a DNS error. Caught at the source.
-        if ("@" in text) return "Put the username in the field above, not in the address."
-        if (":" in text && !text.startsWith("[")) {
-            return "Put the port in the field below. Bracket a literal IPv6 address."
-        }
-        if (text.any { it.isWhitespace() }) return "An address cannot contain spaces."
-        return null
-    }
-
-    private fun portProblem(raw: String): String? {
-        val text = raw.trim()
-        if (text.isEmpty()) return null
-        val port = text.toIntOrNull() ?: return "The port must be a number."
-        if (port !in 1..65535) return "A port is between 1 and 65535."
-        return null
-    }
-
-    private fun asValidation(problem: String?): ValidationResult =
-        problem?.let { ValidationResult.Invalid(i18n.pnotr(it)) } ?: ValidationResult.Valid
 }

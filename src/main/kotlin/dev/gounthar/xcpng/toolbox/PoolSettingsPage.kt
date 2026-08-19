@@ -30,8 +30,6 @@ import java.net.URI
 class PoolSettingsPage(
     private val settings: XoSettings,
     private val i18n: LocalizableStringFactory,
-    /** See the note on [ConnectionSettingsPage]: the page cannot render its own error. */
-    private val showProblem: (String) -> Unit,
     private val onSaved: () -> Unit,
 ) : UiPage(MutableStateFlow(i18n.ptrl("XCP-ng pool"))) {
 
@@ -93,13 +91,25 @@ class PoolSettingsPage(
         listOf(
             object : RunnableActionDescription {
                 override val label: LocalizableString = i18n.ptrl("Save")
+                /**
+                 * The page staying open **is** the failure signal, because nothing else survives.
+                 *
+                 * A `UiPage` on this Toolbox build has no working way to tell the user anything:
+                 * the field validator, a `ValidationErrorField`, and `ToolboxUi.showInfoPopup`
+                 * were each tried and each rendered nothing (2026-08-19; see
+                 * [ConnectionSettingsPage]). So this deliberately does not close, and a URL that
+                 * cannot be used leaves the form in front of the user instead of vanishing and
+                 * silently keeping the old value.
+                 *
+                 * [ConnectionSettingsPage] takes the other route and normalises rather than
+                 * refusing. That works there because `root@host` says plainly what was meant. An
+                 * empty or scheme-less URL does not, and inventing one would be the guess this
+                 * whole file exists to avoid.
+                 */
                 override val shouldClosePage: Boolean get() = firstProblem() == null
+
                 override fun run() {
-                    val problem = firstProblem()
-                    if (problem != null) {
-                        showProblem(problem)
-                        return
-                    }
+                    if (firstProblem() != null) return
                     save()
                 }
             },

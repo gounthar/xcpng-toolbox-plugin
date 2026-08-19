@@ -144,11 +144,6 @@ class XcpngRemoteProvider(
         PoolSettingsPage(
             settings,
             i18n,
-            showProblem = { problem ->
-                scope.launch {
-                    ui.showInfoPopup(i18n.ptrl("Not saved"), i18n.pnotr(problem), i18n.ptrl("OK"))
-                }
-            },
             onSaved = {
                 logger.info("XCP-ng: settings saved.")
                 // The environment list is empty while unconfigured, so nothing would appear until
