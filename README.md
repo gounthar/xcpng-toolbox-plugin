@@ -12,10 +12,18 @@ environments, with power state and a state-dependent action menu. Start, resume,
 shutdown, force shutdown, take snapshot and revert to a snapshot all run against Xen Orchestra's
 REST API and have been exercised by clicking them.
 
-**Written but not yet verified:** connecting. There is now a settings form for the pool URL and
-token, a pool-wide default SSH username, and a per-VM page for a username, an address override and
-a port; a VM whose address and username both resolve hands Toolbox a real SSH endpoint. **No IDE
-has actually been opened against a VM yet**, so treat "connecting works" as unproven until it has.
+**Also works:** resolving an SSH endpoint and handing it to Toolbox. There is a settings form for
+the pool URL and token, a pool-wide default SSH username, and a per-VM page for a username, an
+address override and a port. Verified on 2026-08-19 by pointing a VM at an address nothing answers
+on and watching the log: `connecting to <uuid> as root@192.168.1.99:9999`, followed by Toolbox's
+own SSH deployment session failing with a connection timeout. The username came from the pool
+default and the address and port from the override, so all three parts of the resolution are in
+that line.
+
+**Still unproven:** a connection that succeeds. Every connect attempted so far was aimed at
+something deliberately unreachable, to keep out of a modal that cannot be cancelled, so **no IDE
+backend has ever been started on a VM**. What is verified is that the plugin resolves an endpoint
+and Toolbox dials it — not that a development environment comes up at the other end.
 
 The reason an address override exists is worth stating, because it is the constraint the whole
 design bends around. Xen Orchestra reports a VM's *last known* address whether or not it is
