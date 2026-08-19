@@ -9,6 +9,7 @@ import com.jetbrains.toolbox.api.localization.LocalizableStringFactory
 import com.jetbrains.toolbox.api.remoteDev.ProviderVisibilityState
 import com.jetbrains.toolbox.api.remoteDev.RemoteProvider
 import com.jetbrains.toolbox.api.remoteDev.RemoteProviderEnvironment
+import com.jetbrains.toolbox.api.remoteDev.states.EnvironmentStateColorPalette
 import com.jetbrains.toolbox.api.ui.ToolboxUi
 import com.jetbrains.toolbox.api.ui.components.UiComponents
 import dev.gounthar.xcpng.toolbox.xo.XoRestClient
@@ -28,6 +29,9 @@ class XcpngRemoteProvider(
     private val scope = serviceLocator.getService(CoroutineScope::class.java)
     private val ui = serviceLocator.getService(ToolboxUi::class.java)
     private val uiComponents = serviceLocator.getService(UiComponents::class.java)
+    // Toolbox owns the theme, so a state's colour is looked up rather than chosen. See the
+    // state mapping in XcpngVmEnvironment for why the states are custom at all.
+    private val statePalette = serviceLocator.getService(EnvironmentStateColorPalette::class.java)
 
     private val settings = XoSettings(
         serviceLocator.getService(PluginSettingsStore::class.java),
@@ -108,7 +112,7 @@ class XcpngRemoteProvider(
                 // drop what the pool no longer has. See environmentsByUuid.
                 val environments = vms.map { vm ->
                     environmentsByUuid.getOrPut(vm.uuid) {
-                        XcpngVmEnvironment(vm, i18n, logger, ui, uiComponents, scope, ::newClient)
+                        XcpngVmEnvironment(vm, i18n, logger, ui, uiComponents, statePalette, scope, ::newClient)
                     }.also { it.update(vm) }
                 }
                 environmentsByUuid.keys.retainAll(vms.mapTo(mutableSetOf()) { it.uuid })

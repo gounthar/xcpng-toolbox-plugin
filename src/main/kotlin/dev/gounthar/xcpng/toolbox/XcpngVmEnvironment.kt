@@ -8,7 +8,10 @@ import com.jetbrains.toolbox.api.remoteDev.RemoteProviderEnvironment
 import com.jetbrains.toolbox.api.remoteDev.environments.EnvironmentContentsView
 import com.jetbrains.toolbox.api.remoteDev.environments.SshEnvironmentContentsView
 import com.jetbrains.toolbox.api.remoteDev.ssh.SshConnectionInfo
+import com.jetbrains.toolbox.api.remoteDev.states.CustomRemoteEnvironmentStateV2
 import com.jetbrains.toolbox.api.remoteDev.states.EnvironmentDescription
+import com.jetbrains.toolbox.api.remoteDev.states.EnvironmentStateColorPalette
+import com.jetbrains.toolbox.api.remoteDev.states.EnvironmentStateIcons
 import com.jetbrains.toolbox.api.remoteDev.states.RemoteEnvironmentState
 import com.jetbrains.toolbox.api.remoteDev.states.StandardRemoteEnvironmentState
 import com.jetbrains.toolbox.api.ui.ToolboxUi
@@ -46,6 +49,7 @@ class XcpngVmEnvironment(
     private val logger: Logger,
     private val ui: ToolboxUi,
     private val uiComponents: UiComponents,
+    private val statePalette: EnvironmentStateColorPalette,
     private val scope: CoroutineScope,
     /**
      * A fresh client per call rather than a shared one. [dev.gounthar.xcpng.toolbox.xo.XoRestClient]
@@ -367,6 +371,47 @@ class XcpngVmEnvironment(
             }
     }
 
+    /**
+     * XAPI power states mapped onto something Toolbox will render as *settled*.
+     *
+     * The obvious mapping is straight onto [StandardRemoteEnvironmentState] — Active, Inactive,
+     * Hibernated — and that is what this did first. It produced a permanently rotating indicator
+     * on every halted row: Toolbox picks the icon for a standard state itself, and for a settled
+     * but unreachable one it picks an animated [EnvironmentStateIcons.Connecting]. A row that has
+     * finished shutting down then looks identical to one still shutting down, which destroys the
+     * only signal the action buttons have.
+     *
+     * [CustomRemoteEnvironmentStateV2] exists for exactly this: the label, the icon and the
+     * reachability flag are ours, and only the colour is looked up so the theme stays Toolbox's.
+     *
+     * **Transitional states deliberately stay standard.** `Activating`, `Hibernating`,
+     * `Restarting` and `Deleted` are set elsewhere and are left as [StandardRemoteEnvironmentState],
+     * because there the animation is telling the truth. The rule is: standard while something is
+     * happening, custom once it has stopped.
+     */
+    private fun XoPowerState.toToolboxState(): RemoteEnvironmentState = when (this) {
+        XoPowerState.RUNNING -> customState("Running", StandardRemoteEnvironmentState.Active,
+            reachable = true, icon = EnvironmentStateIcons.Active)
+        // Not Hibernated: that implies saved memory, which is what XAPI calls Suspended.
+        XoPowerState.HALTED -> customState("Halted", StandardRemoteEnvironmentState.Inactive,
+            reachable = false, icon = EnvironmentStateIcons.Offline)
+        XoPowerState.SUSPENDED -> customState("Suspended", StandardRemoteEnvironmentState.Hibernated,
+            reachable = false, icon = EnvironmentStateIcons.Hibernated)
+        XoPowerState.PAUSED -> customState("Paused", StandardRemoteEnvironmentState.Hibernated,
+            reachable = false, icon = EnvironmentStateIcons.Hibernated)
+        XoPowerState.UNKNOWN -> customState("Unknown", StandardRemoteEnvironmentState.Unreachable,
+            reachable = false, icon = EnvironmentStateIcons.Error)
+    }
+
+    /** [colorOf] names which standard state's colour to borrow, nothing more. */
+    private fun customState(
+        label: String,
+        colorOf: StandardRemoteEnvironmentState,
+        reachable: Boolean,
+        icon: EnvironmentStateIcons,
+    ): RemoteEnvironmentState =
+        CustomRemoteEnvironmentStateV2(i18n.pnotr(label), statePalette.getColor(colorOf), reachable, icon)
+
     private fun XoVm.toDescription(): EnvironmentDescription =
         // pnotr is "plain, not translated". A VM's name, state and UUID are not translatable.
         Description(i18n.pnotr("${powerState.name.lowercase()} · ${uuid.take(8)}"))
@@ -374,17 +419,3 @@ class XcpngVmEnvironment(
     private class Description(override val description: LocalizableString) : EnvironmentDescription
 }
 
-/**
- * XAPI power states mapped onto Toolbox's vocabulary.
- *
- * Toolbox's state names come from a container world, so the mapping is a judgement rather than a
- * translation: a halted VM is [StandardRemoteEnvironmentState.Inactive] rather than Hibernated,
- * because Hibernated implies saved memory, which is what XAPI calls Suspended.
- */
-private fun XoPowerState.toToolboxState(): RemoteEnvironmentState = when (this) {
-    XoPowerState.RUNNING -> StandardRemoteEnvironmentState.Active
-    XoPowerState.HALTED -> StandardRemoteEnvironmentState.Inactive
-    XoPowerState.SUSPENDED -> StandardRemoteEnvironmentState.Hibernated
-    XoPowerState.PAUSED -> StandardRemoteEnvironmentState.Hibernated
-    XoPowerState.UNKNOWN -> StandardRemoteEnvironmentState.Unreachable
-}
