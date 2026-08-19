@@ -8,6 +8,7 @@ import com.jetbrains.toolbox.api.ui.components.TextField
 import com.jetbrains.toolbox.api.ui.components.TextType
 import com.jetbrains.toolbox.api.ui.components.UiField
 import com.jetbrains.toolbox.api.ui.components.UiPage
+import com.jetbrains.toolbox.api.ui.components.ValidationErrorField
 import com.jetbrains.toolbox.api.ui.components.ValidationResult
 import dev.gounthar.xcpng.toolbox.xo.XoVm
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -57,7 +58,7 @@ class ConnectionSettingsPage(
         false,
         null,
         i18n.pnotr(hostPlaceholder()),
-    ) { validateHost(it) }
+    ) { asValidation(hostProblem(it)) }
 
     private val portField = TextField(
         i18n.ptrl("SSH port"),
@@ -66,10 +67,21 @@ class ConnectionSettingsPage(
         false,
         null,
         i18n.pnotr(XoSettings.DEFAULT_SSH_PORT.toString()),
-    ) { validatePort(it) }
+    ) { asValidation(portProblem(it)) }
+
+    /**
+     * Where a rejected save says why.
+     *
+     * Field-level validators are not enough on their own. `RunnableActionDescription.validate()`
+     * defaults to true and the address field's validator does reject `user@host`, yet a save with
+     * that value in it still wrote it to disk — measured 2026-08-19 by typing it and then reading
+     * `settings.json`. Whatever the field validator gates, it is not the action, so the check that
+     * actually protects the stored value has to run inside the button.
+     */
+    private val errorField = ValidationErrorField(i18n.pnotr(""))
 
     override val fields: StateFlow<List<UiField>> =
-        MutableStateFlow(listOf(userField, hostField, portField))
+        MutableStateFlow(listOf(userField, hostField, portField, errorField))
 
     override val description: LocalizableString = i18n.pnotr(
         "Leave the address empty to use whatever the pool reports while the VM is running. " +
@@ -81,8 +93,19 @@ class ConnectionSettingsPage(
         listOf(
             object : RunnableActionDescription {
                 override val label: LocalizableString = i18n.ptrl("Save")
-                override val shouldClosePage: Boolean = true
+
+                // A getter, not a constant: it is answered from whatever is in the fields at the
+                // moment of the click, so an invalid save leaves the page up with its reason on it
+                // rather than closing and discarding what the user typed.
+                override val shouldClosePage: Boolean get() = firstProblem() == null
+
                 override fun run() {
+                    val problem = firstProblem()
+                    if (problem != null) {
+                        errorField.textState.value = i18n.pnotr(problem)
+                        return
+                    }
+                    errorField.textState.value = i18n.pnotr("")
                     settings.setSshOverrides(
                         vm.uuid,
                         user = userField.textState.value,
@@ -95,6 +118,10 @@ class ConnectionSettingsPage(
         ),
     )
 
+    /** The first thing wrong with the form, or null when it is safe to store. */
+    private fun firstProblem(): String? =
+        hostProblem(hostField.textState.value) ?: portProblem(portField.textState.value)
+
     private fun hostPlaceholder(): String {
         val reported = vm.mainIpAddress
         return when {
@@ -105,27 +132,33 @@ class ConnectionSettingsPage(
         }
     }
 
-    private fun validateHost(raw: String): ValidationResult {
+    /**
+     * The checks themselves return the message, and both the field validator and the save button
+     * ask them. Duplicating the rules in a second place is how the two drift until the form says
+     * one thing and the stored value is another.
+     */
+    private fun hostProblem(raw: String): String? {
         val text = raw.trim()
         // Empty is the normal case: it means "fall back to what the pool reports".
-        if (text.isEmpty()) return ValidationResult.Valid
+        if (text.isEmpty()) return null
         // A pasted "user@host" or "host:port" would be stored verbatim and then handed to SSH as a
         // hostname, which fails somewhere far from here with a DNS error. Caught at the source.
-        if ("@" in text) return invalid("Put the username in the field above, not here.")
+        if ("@" in text) return "Put the username in the field above, not in the address."
         if (":" in text && !text.startsWith("[")) {
-            return invalid("Put the port in the field below. Bracket a literal IPv6 address.")
+            return "Put the port in the field below. Bracket a literal IPv6 address."
         }
-        if (text.any { it.isWhitespace() }) return invalid("An address cannot contain spaces.")
-        return ValidationResult.Valid
+        if (text.any { it.isWhitespace() }) return "An address cannot contain spaces."
+        return null
     }
 
-    private fun validatePort(raw: String): ValidationResult {
+    private fun portProblem(raw: String): String? {
         val text = raw.trim()
-        if (text.isEmpty()) return ValidationResult.Valid
-        val port = text.toIntOrNull() ?: return invalid("Not a number.")
-        if (port !in 1..65535) return invalid("A port is between 1 and 65535.")
-        return ValidationResult.Valid
+        if (text.isEmpty()) return null
+        val port = text.toIntOrNull() ?: return "The port must be a number."
+        if (port !in 1..65535) return "A port is between 1 and 65535."
+        return null
     }
 
-    private fun invalid(message: String) = ValidationResult.Invalid(i18n.pnotr(message))
+    private fun asValidation(problem: String?): ValidationResult =
+        problem?.let { ValidationResult.Invalid(i18n.pnotr(it)) } ?: ValidationResult.Valid
 }

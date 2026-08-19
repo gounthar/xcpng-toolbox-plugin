@@ -9,6 +9,7 @@ import com.jetbrains.toolbox.api.ui.components.TextField
 import com.jetbrains.toolbox.api.ui.components.TextType
 import com.jetbrains.toolbox.api.ui.components.UiField
 import com.jetbrains.toolbox.api.ui.components.UiPage
+import com.jetbrains.toolbox.api.ui.components.ValidationErrorField
 import com.jetbrains.toolbox.api.ui.components.ValidationResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -78,8 +79,11 @@ class PoolSettingsPage(
         i18n.pnotr("root"),
     ) { ValidationResult.Valid }
 
+    /** See the note on [ConnectionSettingsPage]: a field validator does not gate the button. */
+    private val errorField = ValidationErrorField(i18n.pnotr(""))
+
     override val fields: StateFlow<List<UiField>> =
-        MutableStateFlow(listOf(urlField, tokenField, insecureField, userField))
+        MutableStateFlow(listOf(urlField, tokenField, insecureField, userField, errorField))
 
     override val description: LocalizableString = i18n.pnotr(
         "Create a token in Xen Orchestra under your own user, or with " +
@@ -91,8 +95,16 @@ class PoolSettingsPage(
         listOf(
             object : RunnableActionDescription {
                 override val label: LocalizableString = i18n.ptrl("Save")
-                override val shouldClosePage: Boolean = true
-                override fun run() = save()
+                override val shouldClosePage: Boolean get() = firstProblem() == null
+                override fun run() {
+                    val problem = firstProblem()
+                    if (problem != null) {
+                        errorField.textState.value = i18n.pnotr(problem)
+                        return
+                    }
+                    errorField.textState.value = i18n.pnotr("")
+                    save()
+                }
             },
         ),
     )
@@ -116,18 +128,34 @@ class PoolSettingsPage(
         onSaved()
     }
 
-    private fun validateUrl(raw: String): ValidationResult {
+    /**
+     * The first thing wrong with the form, or null when it is safe to store.
+     *
+     * The token counts as present if one is already stored, because the field is deliberately
+     * blank in that case — see the note on [tokenField]. Getting this backwards would make an
+     * existing installation unable to change its URL without retyping its token.
+     */
+    private fun firstProblem(): String? {
+        urlProblem(urlField.textState.value)?.let { return it }
+        if (tokenField.textState.value.isBlank() && settings.token == null) {
+            return "A REST API token is required."
+        }
+        return null
+    }
+
+    private fun urlProblem(raw: String): String? {
         val text = raw.trim()
-        if (text.isEmpty()) return invalid("Required.")
-        val uri = runCatching { URI(text) }.getOrNull() ?: return invalid("Not a valid URL.")
+        if (text.isEmpty()) return "A Xen Orchestra URL is required."
+        val uri = runCatching { URI(text) }.getOrNull() ?: return "That is not a valid URL."
         // Checked rather than silently prepended. XO answers on both schemes and guessing wrong
         // produces a connection failure whose message says nothing about the scheme.
         if (uri.scheme != "http" && uri.scheme != "https") {
-            return invalid("Include the scheme, for example https://xoa.example.com")
+            return "Include the scheme, for example https://xoa.example.com"
         }
-        if (uri.host.isNullOrBlank()) return invalid("No host in that URL.")
-        return ValidationResult.Valid
+        if (uri.host.isNullOrBlank()) return "That URL has no host in it."
+        return null
     }
 
-    private fun invalid(message: String) = ValidationResult.Invalid(i18n.pnotr(message))
+    private fun validateUrl(raw: String): ValidationResult =
+        urlProblem(raw)?.let { ValidationResult.Invalid(i18n.pnotr(it)) } ?: ValidationResult.Valid
 }
