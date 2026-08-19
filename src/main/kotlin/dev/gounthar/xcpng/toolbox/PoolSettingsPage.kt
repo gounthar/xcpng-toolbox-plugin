@@ -30,6 +30,11 @@ import java.net.URI
 class PoolSettingsPage(
     private val settings: XoSettings,
     private val i18n: LocalizableStringFactory,
+    /**
+     * How a rejected save says why. Raised by the caller, which owns both a scope and a
+     * [com.jetbrains.toolbox.api.ui.ToolboxUi]; `showInfoPopup` suspends and this class has neither.
+     */
+    private val showProblem: (String) -> Unit,
     private val onSaved: () -> Unit,
 ) : UiPage(MutableStateFlow(i18n.ptrl("XCP-ng pool"))) {
 
@@ -92,24 +97,22 @@ class PoolSettingsPage(
             object : RunnableActionDescription {
                 override val label: LocalizableString = i18n.ptrl("Save")
                 /**
-                 * The page staying open **is** the failure signal, because nothing else survives.
+                 * Closes even when it refuses, which looks wrong and is the only thing that works.
                  *
-                 * A `UiPage` on this Toolbox build has no working way to tell the user anything:
-                 * the field validator, a `ValidationErrorField`, and `ToolboxUi.showInfoPopup`
-                 * were each tried and each rendered nothing (2026-08-19; see
-                 * [ConnectionSettingsPage]). So this deliberately does not close, and a URL that
-                 * cannot be used leaves the form in front of the user instead of vanishing and
-                 * silently keeping the old value.
+                 * A popup raised from inside a `UiPage` is queued until that page closes — see
+                 * CLAUDE.md. An earlier version kept the page open on invalid input *and* raised a
+                 * popup, which are mutually exclusive: the page never closed, so the message never
+                 * appeared, and a save that silently did nothing read as a save that worked.
                  *
-                 * [ConnectionSettingsPage] takes the other route and normalises rather than
-                 * refusing. That works there because `root@host` says plainly what was meant. An
-                 * empty or scheme-less URL does not, and inventing one would be the guess this
-                 * whole file exists to avoid.
+                 * Nothing is lost by closing here. [XcpngRemoteProvider] holds this page instance,
+                 * so reopening Settings shows the text that was typed, still in the fields.
                  */
-                override val shouldClosePage: Boolean get() = firstProblem() == null
-
                 override fun run() {
-                    if (firstProblem() != null) return
+                    val problem = firstProblem()
+                    if (problem != null) {
+                        showProblem(problem)
+                        return
+                    }
                     save()
                 }
             },
