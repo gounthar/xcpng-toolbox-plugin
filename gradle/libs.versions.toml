@@ -25,9 +25,19 @@ toolbox-plugin-api = "1.10.80952"
 #
 # So this pin currently sits a hair ABOVE the runtime, RC2 being a pre-release of this same
 # version. Nobody chose that; #15 bumped 2.3.10 -> 2.4.10 and merged green past a comment
-# that still named 2.3.10. It is very likely harmless — RC2 to final is not a stdlib API
-# change, the build is green and 66 tests pass — but it is unverified: nobody has launched
-# Toolbox against a 2.4.10-compiled build. Treat it as a lead, not a measurement.
+# that still named 2.3.10.
+#
+# MEASURED 2026-08-20, and it is fine. A jar carrying Kotlin metadata mv=[2,4,0] was
+# installed and Toolbox 3.7.0.87111 launched against it (pid 29716): the provider
+# instantiated and logged "XCP-ng: 13 VMs from https://192.168.1.5", with no LinkageError,
+# NoSuchMethodError, NoClassDefFoundError or VerifyError anywhere in the launch. The
+# previous install was mv=[2,3,0], so the two builds differ and the test is not a no-op.
+#
+# That one line is a stronger check than it looks: listing VMs exercises all three
+# host-provided libraries at once — stdlib to load the class, coroutines to run the
+# suspend call, serialization to parse the REST response. It tests the ceiling, not just
+# class loading. It is one build of Toolbox on one machine, so it is a measurement of
+# THIS pairing rather than a general law about compiling above the bundled stdlib.
 #
 # Bump this only after re-reading that directory, and bump it TO what it contains.
 # dependabot is told to leave it alone in .github/dependabot.yml.
