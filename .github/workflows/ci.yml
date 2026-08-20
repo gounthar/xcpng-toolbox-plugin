@@ -24,6 +24,34 @@ permissions:
   contents: read
 
 jobs:
+  # The rule this enforces predates the job and was applied by hand, which is why it needed
+  # a job: a squashed merge put seven tooling-attribution trailers on the default branch and
+  # five source comments cited a working file whose name breaks the same rule. Both passed
+  # review. Clearing them meant rewriting history, so the cost of catching this late is not
+  # theoretical.
+  #
+  # fetch-depth: 0 is required, not tidiness. The default shallow checkout does not contain
+  # the pull request's base commit, and the script exits 2 rather than 0 when it cannot see
+  # it -- "could not check" must never render as a green tick.
+  tooling-references:
+    name: no tooling references
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check tracked content and commit messages
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ -n "$BASE" ] && [ -n "$HEAD" ]; then
+            bash .github/scripts/check-tooling-references.sh "$BASE" "$HEAD"
+          else
+            bash .github/scripts/check-tooling-references.sh
+          fi
+
   build:
     name: JDK 21
     runs-on: ubuntu-latest

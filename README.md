@@ -66,8 +66,34 @@ Toolbox renders for you.
 ./gradlew compileKotlin
 ```
 
-JDK 21. Kotlin 2.3.10 is required rather than preferred; see the comment in
-`gradle/libs.versions.toml`.
+JDK 21, and pinned rather than preferred: `gradle/gradle-daemon-jvm.properties` sets
+`toolchainVersion=21` because a newer JDK fails while compiling the *build script*, with an
+error naming no file and no task.
+
+The Kotlin version is bounded on **both** sides, which is why it is not a routine bump. The
+compiler must be new enough to read the binary metadata in the Toolbox API jars, and
+`kotlin-stdlib` is supplied by Toolbox at runtime, so compiling above what the installed app
+bundles is a `NoSuchMethodError` that CI cannot see — CI only compiles. The same applies to
+`kotlinx-coroutines` and `kotlinx-serialization`, which are `compileOnly` for the same reason.
+The working is in `gradle/libs.versions.toml`, next to the values.
+
+### One-time setup
+
+```
+git config core.hooksPath .githooks
+```
+
+Turns on the local hooks. Nothing tracked in this repository names the tools used to write it —
+not code, comments, commit messages, pull requests or issues — and the `commit-msg` hook catches
+a breach at commit time, when it is free to fix. The same check runs in CI on every pull request
+and is the one that cannot be skipped:
+
+```
+.github/scripts/check-tooling-references.sh [base head]
+```
+
+No script here reconfigures git for you; a repository that rewrites your config on checkout is
+worse than the problem it solves.
 
 ## Related
 
