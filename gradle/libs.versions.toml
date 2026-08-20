@@ -5,10 +5,42 @@
 # Re-check with:
 #   curl -s https://packages.jetbrains.team/maven/p/tbx/toolbox-api/com/jetbrains/toolbox/remote-dev-api/maven-metadata.xml | grep release
 toolbox-plugin-api = "1.10.80952"
-# Load-bearing, and measured rather than chosen. The Toolbox artifacts carry Kotlin
-# 2.3.0 binary metadata; building against them with Kotlin 2.1.10 fails with an
-# internal compiler error plus "Module was compiled with an incompatible version of
-# Kotlin" for every toolbox jar. Coder pins 2.3.10 for the same reason.
+# Load-bearing, and measured rather than chosen. This value is bounded on BOTH sides,
+# which is what makes it the same kind of dependency as the two kotlinx pins below rather
+# than one to keep current.
+#
+# FLOOR. The compiler must be new enough to read the Kotlin 2.3.0 binary metadata the
+# Toolbox artifacts carry. 2.1.10 is too old: it dies with an internal compiler error plus
+# "Module was compiled with an incompatible version of Kotlin" for every toolbox jar.
+# Measured here by hitting it, 2026-08-18. Coder compiles on 2.3.10 and ships to tens of
+# thousands of users, which is independent evidence for where the floor sits.
+#
+# CEILING. kotlin-stdlib is host-provided, exactly like coroutines and serialization below,
+# so compiling against a stdlib newer than the one Toolbox loads is the same trap: a
+# NoSuchMethodError inside Toolbox that CI structurally cannot see, because CI only
+# compiles and compiling is the step that succeeds.
+#
+# Measured in Toolbox 3.7.0.87111, bin/lib:
+#   kotlin-stdlib-2.4.10-RC2.jar   (likewise -jdk7, -jdk8, and kotlin-reflect)
+#
+# So this pin currently sits a hair ABOVE the runtime, RC2 being a pre-release of this same
+# version. Nobody chose that; #15 bumped 2.3.10 -> 2.4.10 and merged green past a comment
+# that still named 2.3.10.
+#
+# MEASURED 2026-08-20, and it is fine. A jar carrying Kotlin metadata mv=[2,4,0] was
+# installed and Toolbox 3.7.0.87111 launched against it (pid 29716): the provider
+# instantiated and logged "XCP-ng: 13 VMs from https://192.168.1.5", with no LinkageError,
+# NoSuchMethodError, NoClassDefFoundError or VerifyError anywhere in the launch. The
+# previous install was mv=[2,3,0], so the two builds differ and the test is not a no-op.
+#
+# That one line is a stronger check than it looks: listing VMs exercises all three
+# host-provided libraries at once — stdlib to load the class, coroutines to run the
+# suspend call, serialization to parse the REST response. It tests the ceiling, not just
+# class loading. It is one build of Toolbox on one machine, so it is a measurement of
+# THIS pairing rather than a general law about compiling above the bundled stdlib.
+#
+# Bump this only after re-reading that directory, and bump it TO what it contains.
+# dependabot is told to leave it alone in .github/dependabot.yml.
 kotlin = "2.4.10"
 # These two are NOT "keep them fresh" dependencies. They are compileOnly because Toolbox
 # supplies them at runtime, so their value is a RUNTIME FLOOR read out of the installed
