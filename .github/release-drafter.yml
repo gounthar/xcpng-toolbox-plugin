@@ -14,45 +14,59 @@ tag-template: '$RESOLVED_VERSION'
 
 categories:
   - title: Features
-    labels:
-      - enhancement
+    when:
+      labels:
+        - enhancement
   - title: Bug fixes
-    labels:
-      - bug
+    when:
+      labels:
+        - bug
   - title: Documentation
-    labels:
-      - documentation
+    when:
+      labels:
+        - documentation
   - title: Build, CI, and dependencies
-    labels:
-      - build
-      - ci
-      - dependencies
-      - github_actions
+    when:
+      labels:
+        - build
+        - ci
+        - dependencies
+        - github_actions
 
-# `default: patch` matters more than any individual entry: an unlabelled pull request still
-# lands somewhere sensible instead of silently deciding the version.
-version-resolver:
-  major:
-    labels:
-      - major
-      - breaking
-  minor:
-    labels:
-      - minor
-      - enhancement
-  patch:
-    labels:
-      - patch
-      - bug
-      - documentation
-      - dependencies
-      - build
-      - ci
-      - github_actions
-  default: patch
+  - type: 'pre-exclude'
+    when:
+      label: skip-changelog
 
-exclude-labels:
-  - skip-changelog
+  # The version now resolves from `type: version-resolver` entries in this same list. The
+  # last one carries no `when`, which is how the old `default: patch` is spelled in the new
+  # form, and it matters more than any individual entry: an unlabelled pull request still
+  # lands somewhere sensible instead of silently deciding the version. Where two entries
+  # match, the highest increment wins.
+  - type: 'version-resolver'
+    semver-increment: major
+    when:
+      labels:
+        - major
+        - breaking
+  - type: 'version-resolver'
+    semver-increment: minor
+    when:
+      labels:
+        - minor
+        - enhancement
+  - type: 'version-resolver'
+    semver-increment: patch
+    when:
+      labels:
+        - patch
+        - bug
+        - documentation
+        - dependencies
+        - build
+        - ci
+        - github_actions
+  - type: 'version-resolver'
+    semver-increment: patch
 
 change-template: '- $TITLE (#$NUMBER) @$AUTHOR'
 no-changes-template: '- No user-visible changes'
