@@ -1,7 +1,13 @@
 [versions]
-# Latest published at the time of writing. NOTE: maven-metadata.xml's <versions>
-# list for these artifacts is stale and lists neither this nor the version Coder
-# pins (1.10.76281); <latest>/<release> and the jars themselves are correct.
+# Latest published at the time of writing. Bumped by hand: these come from
+# packages.jetbrains.team rather than Maven Central and dependabot is not configured
+# for that registry.
+#
+# This block used to warn that maven-metadata.xml's <versions> list is stale and lists
+# neither this version nor Coder's pin. Re-measured 2026-08-20 and that is false: all
+# three artifacts carry 20 versions including both, and each list agrees with its own
+# <release>. Reading <release> is still the simplest thing to do; it is just not the
+# only thing that works.
 # Re-check with:
 #   curl -s https://packages.jetbrains.team/maven/p/tbx/toolbox-api/com/jetbrains/toolbox/remote-dev-api/maven-metadata.xml | grep release
 toolbox-plugin-api = "1.10.80952"
@@ -41,6 +47,10 @@ toolbox-plugin-api = "1.10.80952"
 #
 # Bump this only after re-reading that directory, and bump it TO what it contains.
 # dependabot is told to leave it alone in .github/dependabot.yml.
+#
+# WHICH Toolbox build "that directory" belongs to is recorded in gradle/toolbox-runtime.yaml,
+# and .github/workflows/toolbox-runtime.yml opens a pull request against that record when
+# JetBrains publishes a newer build. That pull request never edits this file.
 kotlin = "2.4.10"
 # These two are NOT "keep them fresh" dependencies. They are compileOnly because Toolbox
 # supplies them at runtime, so their value is a RUNTIME FLOOR read out of the installed
@@ -54,6 +64,7 @@ kotlin = "2.4.10"
 #   kotlinx-serialization-json-jvm-1.9.0.jar
 #
 # Bump these only after re-reading that directory, and bump them TO what it contains.
+# The build that directory belongs to is recorded in gradle/toolbox-runtime.yaml.
 # dependabot is told to leave them alone in .github/dependabot.yml; it raised both on
 # 2026-08-20 (#12, #13) and the comment explaining the pin survived while the value it
 # explained did not.

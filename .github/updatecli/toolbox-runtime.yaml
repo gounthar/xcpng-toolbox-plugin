@@ -1,0 +1,140 @@
+---
+# Watches JetBrains' Toolbox build feed and records what the newest published build bundles.
+#
+# It updates gradle/toolbox-runtime.yaml and NOTHING ELSE. In particular it never touches
+# gradle/libs.versions.toml, and that restraint is the whole design:
+#
+#   * The feed says what JetBrains has PUBLISHED. It cannot say what is installed on the
+#     machine that will run the plugin -- those diverged for most of 2026-08-20.
+#   * A bump to the three host-provided pins is only safe once somebody has the new Toolbox
+#     installed and has launched it. Compiling proves nothing here; the failure mode is a
+#     NoSuchMethodError at runtime and CI only compiles.
+#
+# So the pull request is a notification with a diff attached, not a dependency bump. What it
+# is worth is the delta: which of the three bundled versions moved, if any. A build that
+# moves with all three unchanged -- which is what 3.7.0.87111 -> 3.7.1.87197 did -- shows up
+# as a one-line diff and can be merged on sight.
+#
+# Run it by hand from a clone with:
+#   updatecli diff  --config .github/updatecli/toolbox-runtime.yaml
+#   updatecli apply --config .github/updatecli/toolbox-runtime.yaml
+#
+# `diff` needs no credentials beyond reading this repository; `apply` opens the pull request
+# and wants UPDATECLI_GITHUB_TOKEN and UPDATECLI_GITHUB_ACTOR.
+
+name: 'chore(deps): record what the newest JetBrains Toolbox build bundles'
+
+# Stable, so a second run updates the same branch and the same pull request instead of
+# opening another one every week.
+pipelineid: toolbox-runtime
+
+scms:
+  default:
+    kind: github
+    spec:
+      owner: gounthar
+      repository: xcpng-toolbox-plugin
+      branch: main
+      token: '{{ requiredEnv "UPDATECLI_GITHUB_TOKEN" }}'
+      username: '{{ requiredEnv "UPDATECLI_GITHUB_ACTOR" }}'
+      user: '{{ requiredEnv "UPDATECLI_GITHUB_ACTOR" }}'
+      email: '{{ requiredEnv "UPDATECLI_GITHUB_EMAIL" }}'
+
+actions:
+  default:
+    kind: github/pullrequest
+    scmid: default
+    title: 'chore(deps): a new JetBrains Toolbox build is published'
+    spec:
+      labels:
+        - dependencies
+        - toolbox-api
+      description: |
+        A newer JetBrains Toolbox build is published than the one this repository records.
+
+        **This changes `gradle/toolbox-runtime.yaml` only. It does not bump anything.**
+        The three host-provided pins in `gradle/libs.versions.toml` stay exactly where they
+        are until a human decides otherwise, because the feed reports what JetBrains has
+        *published*, not what is installed anywhere, and a pin that is too high fails at
+        runtime inside Toolbox with a `NoSuchMethodError` that CI structurally cannot see.
+
+        Read the diff first. If only `build:` moved and the three `bundled:` values are
+        unchanged, nothing is owed beyond merging this — that is the common case.
+
+        If a `bundled:` value did move:
+
+        - [ ] Install the new Toolbox on a machine you can launch it on.
+        - [ ] Confirm the manifest against the app: `ls <toolbox>/bin/lib | grep -E 'kotlin-stdlib|kotlinx-coroutines-core|kotlinx-serialization-json'`. The published manifest has matched `bin/lib` every time it has been checked, but it is a claim about the build, not about your install.
+        - [ ] Decide whether the pin follows. A bundled version going *up* raises the ceiling and nothing is forced; a bundled version going *down* means an existing pin may now be above the runtime, which is the case that actually breaks.
+        - [ ] If a pin changes: `./gradlew installPlugin`, launch Toolbox, and read the log for `XCP-ng: <n> VMs from <url>`. That one line is the smoke test — it exercises all three host-provided libraries at once, stdlib to load the class, coroutines to run the suspend call, serialization to parse the REST response — so a launch reaching it with no `LinkageError`, `NoSuchMethodError`, `NoClassDefFoundError` or `VerifyError` tests the ceiling rather than merely that classes resolve.
+        - [ ] Tell the two builds apart with `javap -v` on an installed class and read `mv=`. A jar timestamp will not do it: `installPlugin` is a `Sync` and skips a byte-identical copy.
+
+        If this pull request failed to open with a library-name error instead, JetBrains has
+        renamed something in the manifest and `.github/scripts/toolbox-bundled-versions.sh`
+        needs its display-name map updated. That failure is deliberate — a rename must never
+        read as "no change".
+
+sources:
+  # Four calls to one script rather than one call parsed four ways, because updatecli takes
+  # a source's stdout as its value. The script caches the feed for the length of a run, so
+  # all four values describe the same build even if JetBrains publishes mid-run.
+  build:
+    name: newest published Toolbox build
+    kind: shell
+    spec:
+      command: bash .github/scripts/toolbox-bundled-versions.sh build
+
+  kotlin:
+    name: Kotlin bundled by that build
+    kind: shell
+    spec:
+      command: bash .github/scripts/toolbox-bundled-versions.sh kotlin
+
+  coroutines:
+    name: kotlinx.coroutines bundled by that build
+    kind: shell
+    spec:
+      command: bash .github/scripts/toolbox-bundled-versions.sh coroutines
+
+  serialization:
+    name: kotlinx.serialization bundled by that build
+    kind: shell
+    spec:
+      command: bash .github/scripts/toolbox-bundled-versions.sh serialization
+
+targets:
+  build:
+    name: 'record Toolbox build'
+    kind: yaml
+    scmid: default
+    sourceid: build
+    spec:
+      file: gradle/toolbox-runtime.yaml
+      key: $.build
+
+  kotlin:
+    name: 'record bundled Kotlin'
+    kind: yaml
+    scmid: default
+    sourceid: kotlin
+    spec:
+      file: gradle/toolbox-runtime.yaml
+      key: $.bundled.kotlin
+
+  coroutines:
+    name: 'record bundled kotlinx.coroutines'
+    kind: yaml
+    scmid: default
+    sourceid: coroutines
+    spec:
+      file: gradle/toolbox-runtime.yaml
+      key: $.bundled.coroutines
+
+  serialization:
+    name: 'record bundled kotlinx.serialization'
+    kind: yaml
+    scmid: default
+    sourceid: serialization
+    spec:
+      file: gradle/toolbox-runtime.yaml
+      key: $.bundled.serialization
