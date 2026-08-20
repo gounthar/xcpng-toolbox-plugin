@@ -1,0 +1,95 @@
+# Builds and tests on every push to main and every pull request.
+#
+# Until this file existed, nothing but a local `./gradlew build` had ever compiled this code
+# or run its tests. The checks that appeared green on pull requests #4, #5 and #7 were
+# GitGuardian and CodeRabbit: a secret scanner and a review bot, neither of which builds
+# anything. See issue #8.
+#
+# What this does not do is worth stating, because it is the failure this project keeps hitting:
+# a change can compile, pass every test, and still be wrong in the Toolbox UI. Pull request #7
+# was exactly that — a display name that was correct in the diff and wrong on screen. CI raises
+# the floor here; installing the plugin and looking at it is still the only check for anything
+# Toolbox renders.
+---
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: JDK 21
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # 21, and not by preference. gradle/gradle-daemon-jvm.properties pins
+      # toolchainVersion=21 because Gradle 8.12's embedded Kotlin cannot parse a Java 25
+      # version string: it fails while compiling the *build script* with a bare
+      # "IllegalArgumentException: 25.0.4" naming no file, no task and no cause. A runner
+      # defaulting to a newer JDK reproduces that exactly.
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # The wrapper jar is a binary committed to this repository. Validating it against
+      # Gradle's published checksums is the one cheap guard against it being swapped.
+      - name: Validate the Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v6
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      # `build` covers compileKotlin, test and jar. The Toolbox API artifacts it resolves are
+      # not on Maven Central — they come from packages.jetbrains.team, anonymously readable
+      # (verified 2026-08-20). No credential is needed and none should be added here.
+      - name: Build and test
+        run: ./gradlew build
+
+      # The zip a release would ship. Building it on every run means packaging breaks surface
+      # here rather than at release time, when the tag already exists.
+      - name: Package the plugin
+        run: ./gradlew packagePlugin
+
+      - name: Upload the test report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-report
+          path: build/reports/tests/test
+          retention-days: 7
+
+  # A workflow file that fails the Actions schema does not produce a lint error anyone can
+  # read: GitHub attributes the invalid file to the triggering push and emits a run with zero
+  # jobs and a failure conclusion. yamllint reports nothing, because the YAML is well formed
+  # and it is the schema that is wrong. This repository is gaining several workflow files at
+  # once, which is exactly when that bites.
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Pinned rather than `latest`, so a green run stays evidence about a known actionlint.
+      - name: Install actionlint
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+        run: |
+          curl -fsSL -o /tmp/actionlint.tar.gz \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          sudo tar -xzf /tmp/actionlint.tar.gz -C /usr/local/bin actionlint
+          actionlint --version
+
+      # actionlint shells out to shellcheck for every run: block, and ubuntu-latest ships it,
+      # so this lints the shell embedded in these workflows as well as their schema.
+      - name: Lint the workflow files
+        run: actionlint -color
