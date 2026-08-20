@@ -150,7 +150,7 @@ class XcpngVmEnvironment(
             // installed runtime on 2026-08-19: shouldUseSystemConfiguration and
             // shouldUseSystemSshAgent are both true, and shouldAskForPassword is true. So the
             // user's own ~/.ssh/config, keys and agent apply, with a password prompt as the
-            // fallback, and this plugin never handles a credential. See the project notes.
+            // fallback, and this plugin never handles a credential.
             return object : SshConnectionInfo {
                 override val host: String = host
                 override val port: Int = sshPort

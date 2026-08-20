@@ -17,7 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 /**
  * How to reach one VM over SSH, when the pool cannot say.
  *
- * The address half of this exists because of the measurement in the project notes: `mainIpAddress` is a
+ * The address half of this exists because of a measurement on the lab pool: `mainIpAddress` is a
  * *last-known* value, trustworthy only while a VM is running, and on the lab pool only 1 of 4
  * running VMs reported one at all — the one that did being XOA itself. A guest with no agent
  * reports nothing, forever, and no amount of waiting changes that. Letting the address be typed
