@@ -1,0 +1,130 @@
+# Watches JetBrains' Toolbox build feed, so that a Toolbox upgrade stops being something
+# this project finds out about by accident.
+#
+# Three pinned versions -- kotlin, coroutines, serialization -- are ceilings read out of the
+# Toolbox the plugin runs inside, not releases to keep current. The instruction guarding
+# them used to be a sentence in .github/dependabot.yml saying to re-read bin/lib after a
+# Toolbox upgrade. It had no trigger: Toolbox self-upgraded 3.7.0.87111 -> 3.7.1.87197 on
+# 2026-08-20 mid-session and was noticed only because a log line changed its version prefix.
+#
+# What this opens is a NOTIFICATION with a diff attached, not a dependency bump. It writes
+# gradle/toolbox-runtime.yaml and never gradle/libs.versions.toml, because the feed reports
+# what JetBrains has published rather than what is installed anywhere, and a pin can only be
+# moved by somebody who can install the new Toolbox and launch it.
+---
+name: toolbox-runtime
+
+on:
+  schedule:
+    # Weekly, on the same footing as the gradle ecosystem in dependabot.yml. Off the hour:
+    # GitHub queues everything scheduled on :00 and runs it late.
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Open a pull request if the build moved (unchecked = report only)'
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - '.github/workflows/toolbox-runtime.yml'
+      - '.github/updatecli/**'
+      - '.github/scripts/toolbox-bundled-versions.sh'
+      - 'gradle/toolbox-runtime.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  # Everything about this that has moving parts lives in the script: it reads the feed,
+  # takes the manifest URL out of the feed rather than composing one, and matches library
+  # display names exactly. So the pull request check runs the script against the live
+  # endpoints and lints it.
+  #
+  # What this job deliberately does NOT do is exercise the apply path end to end. The
+  # manifest's scm base is `main`, so `updatecli diff` on a pull request would read main's
+  # copy of the record file and main's manifest -- it would ignore the very changes under
+  # review, and on the pull request that introduces the record file there is nothing on main
+  # to read at all. Use `workflow_dispatch` with apply unchecked for the full path once this
+  # is on main; the source-to-target behaviour was measured by hand on updatecli 0.119.0 and
+  # 0.120.1 before this landed.
+  check:
+    name: read the feed
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Lint the script
+        run: |
+          bash -n .github/scripts/toolbox-bundled-versions.sh
+          shellcheck .github/scripts/toolbox-bundled-versions.sh
+
+      # Against the live endpoints, because the failure this guards against is JetBrains
+      # changing the shape of the feed or renaming a library -- neither of which a fixture
+      # would ever show. Four lines out means the feed parsed, the manifest URL resolved,
+      # and all three display names still match exactly.
+      #
+      # It is NOT compared against the committed record. A newly published build is the
+      # normal state of the world and must not turn an unrelated pull request red.
+      - name: Read what the newest published build bundles
+        run: |
+          set -uo pipefail
+          if ! .github/scripts/toolbox-bundled-versions.sh --all | tee /tmp/bundled.txt; then
+            echo "::error::Could not read the Toolbox build feed. Nothing was verified." >&2
+            exit 1
+          fi
+          lines=$(wc -l < /tmp/bundled.txt)
+          if [ "$lines" -ne 4 ]; then
+            echo "::error::Expected 4 values, got $lines." >&2
+            exit 1
+          fi
+          echo "Recorded in this branch:"
+          grep -vE '^\s*#|^\s*$' gradle/toolbox-runtime.yaml
+
+  # The real thing. On the schedule it applies; on a manual run it reports unless the box is
+  # ticked, which is the way to try a change to the manifest without opening anything.
+  watch:
+    name: watch the Toolbox build feed
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+
+      # Pinned, not `latest`, on the same grounds as actionlint in ci.yml: a green run
+      # should be evidence about a known updatecli. This is also the version the quoting and
+      # comment-preservation behaviour of the yaml target was measured on -- the record file
+      # is written unquoted specifically to match what this engine emits, so bumping it
+      # means re-running that check rather than waving it through.
+      - name: Install updatecli
+        uses: updatecli/updatecli-action@v3.6.0
+        with:
+          version: v0.120.1
+
+      - name: Report what the newest published build bundles
+        run: .github/scripts/toolbox-bundled-versions.sh --all
+
+      - name: Diff
+        if: github.event_name == 'workflow_dispatch' && inputs.apply != true
+        env:
+          UPDATECLI_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPDATECLI_GITHUB_ACTOR: ${{ github.actor }}
+          UPDATECLI_GITHUB_EMAIL: ${{ github.actor }}@users.noreply.github.com
+        run: updatecli diff --config .github/updatecli/toolbox-runtime.yaml
+
+      # GITHUB_TOKEN is deliberate and has one consequence worth knowing: a pull request it
+      # opens does not trigger other workflows, so ci.yml will not run on it. That is
+      # tolerable here and only here, because the diff is confined to one record file that
+      # nothing compiles against, and because ci.yml's checks on `main` run on the push that
+      # merges it. Swapping in a personal access token would restore the checks and is the
+      # change to make if this ever writes anything that is built.
+      - name: Apply
+        if: github.event_name != 'workflow_dispatch' || inputs.apply == true
+        env:
+          UPDATECLI_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPDATECLI_GITHUB_ACTOR: ${{ github.actor }}
+          UPDATECLI_GITHUB_EMAIL: ${{ github.actor }}@users.noreply.github.com
+        run: updatecli apply --config .github/updatecli/toolbox-runtime.yaml

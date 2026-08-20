@@ -1,0 +1,53 @@
+# What the JetBrains Toolbox build this project's host-provided pins were matched against
+# actually bundles.
+#
+# Three versions in libs.versions.toml -- kotlin, coroutines, serialization -- are ceilings
+# rather than floors. Toolbox supplies all three at runtime, so compiling above what it
+# loads is a NoSuchMethodError inside Toolbox, and CI cannot see it because CI only
+# compiles. Until this file existed, the build those ceilings were read from lived only in
+# prose and in an uncommitted working file, so a session starting from a fresh clone could
+# not find out which one it was.
+#
+# This is a RECORD, not a source of truth for the build. Nothing reads it at compile time.
+# It is here so that "which Toolbox did we measure against?" has an answer in the
+# repository, and so that a new Toolbox release shows up as a diff.
+#
+# .github/updatecli/toolbox-runtime.yaml watches JetBrains' build feed and opens a pull
+# request updating these values when the published build moves. That pull request
+# deliberately does NOT touch libs.versions.toml: see the checklist in its description for
+# why, and for the one-line smoke test that decides whether a pin should follow.
+#
+# Re-verify by hand with, on a machine that has Toolbox installed:
+#   ls <toolbox>/bin/lib | grep -E 'kotlin-stdlib|kotlinx-coroutines-core|kotlinx-serialization-json'
+# or, from anywhere:
+#   .github/scripts/toolbox-bundled-versions.sh --all
+#
+# THE VALUES ARE UNQUOTED ON PURPOSE. Do not add quotes back. updatecli's default yaml
+# engine writes values without them, so a quoted file loses its quotes on the first
+# automated change and every diff carries that noise; unquoted, an update is exactly the
+# lines that moved. Measured both ways -- the yamlpath engine keeps quotes but deletes a
+# blank line on every write, which is worse because it accumulates. All four values happen
+# to parse as strings unquoted, and none is one dot away from being a number today; if a
+# future value ever is (a bare "1.10" is a float), quote that one line and accept the churn.
+
+# The Toolbox build the three values below were read from. 3.7.1.87197 was verified twice
+# over: against the published manifest for that build, and against bin/lib of the same build
+# installed on Windows, on 2026-08-20.
+build: 3.7.1.87197
+
+# What that build bundles, by JetBrains' own display names:
+#   kotlin        -> "Kotlin"
+#   coroutines    -> "kotlinx.coroutines"
+#   serialization -> "kotlinx.serialization"
+#
+# These are NOT the pinned values, and the difference is deliberate rather than drift. The
+# project compiles Kotlin at 2.4.10 final while the runtime bundles 2.4.10-RC2 -- a hair
+# above, measured to work rather than assumed: a jar carrying metadata mv=[2,4,0] was
+# installed over a previous mv=[2,3,0] build, Toolbox launched, and the provider logged
+# "XCP-ng: 13 VMs from https://192.168.1.5" with no LinkageError, NoSuchMethodError,
+# NoClassDefFoundError or VerifyError. Do not copy an RC string into the pin to close the
+# gap; the pairing is the thing that was tested.
+bundled:
+  kotlin: 2.4.10-RC2
+  coroutines: 1.10.2
+  serialization: 1.9.0

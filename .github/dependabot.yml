@@ -52,8 +52,15 @@
 #
 # The second lists Kotlin, kotlinx.coroutines and kotlinx.serialization by display name, and
 # all three were verified against the installed 3.7.1.87197 bin/lib before this was written
-# down. That makes the check automatable without an install; tracked as an issue rather than
-# built here, because this repo has no updatecli yet.
+# down. That makes the check automatable without an install, and it now is:
+#
+#   gradle/toolbox-runtime.yaml            what the build we matched against bundles
+#   .github/scripts/toolbox-bundled-versions.sh   reads both endpoints
+#   .github/workflows/toolbox-runtime.yml  weekly, opens a pull request when the build moves
+#
+# That pull request updates the record and nothing else. It does not bump the three pins
+# below and must not be taught to: the feed reports what JetBrains has published, not what
+# is installed, and only somebody who can launch the new Toolbox can decide a pin follows.
 ---
 version: 2
 
