@@ -180,3 +180,65 @@ val packagePlugin by tasks.registering(Zip::class) {
         include("icon.svg", "pluginIcon.svg")
     }
 }
+
+/**
+ * Points git at the tracked hooks directory, once, for whoever builds this.
+ *
+ * Hooks are not installed by cloning, so a hook nobody enables enforces nothing. The README
+ * documents the one-line opt-in, and documentation is exactly the mechanism that already
+ * failed here: the no-tooling-references rule was written down long before it was enforced,
+ * and it was breached twice anyway. So it is wired into `build` rather than remembered.
+ *
+ * **It sets the LOCAL value, deliberately.** `git config --get core.hooksPath` reports an
+ * inherited global setting, and reading that was the first version's bug: a developer with a
+ * global hooks directory -- which is a normal thing to have -- would see this task politely
+ * decline forever and never get the project's hooks. A local value overrides the global one
+ * for this repository only and leaves every other repository alone.
+ *
+ * The cost of that choice is real and is stated rather than hidden: while it is set, a global
+ * hooks directory does not run *here*. The task says so when it overrides one, and
+ * `-PskipGitHooks` opts out. CI does not depend on any of this; the copy of the check that
+ * cannot be skipped runs from the workflow.
+ *
+ * Written against the configuration cache rather than around it: no Gradle script objects are
+ * captured, only strings and files, because `project.logger` and `providers.exec` inside
+ * `doLast` fail to serialize.
+ */
+val installGitHooks by tasks.registering {
+    description = "Points core.hooksPath at .githooks for this repository."
+    group = "verification"
+
+    val hooksDir = ".githooks"
+    val projectDir = layout.projectDirectory.asFile
+    val gitDir = layout.projectDirectory.file(".git").asFile
+    val skip = providers.gradleProperty("skipGitHooks").isPresent
+
+    onlyIf { !skip && gitDir.exists() }
+
+    doLast {
+        fun git(vararg args: String): Pair<Int, String> {
+            val proc = ProcessBuilder(listOf("git") + args)
+                .directory(projectDir)
+                .redirectErrorStream(true)
+                .start()
+            val out = proc.inputStream.bufferedReader().readText().trim()
+            return proc.waitFor() to out
+        }
+
+        val (_, local) = git("config", "--local", "--get", "core.hooksPath")
+        if (local == hooksDir) return@doLast // Already right. Say nothing.
+
+        val (inheritedCode, inherited) = git("config", "--get", "core.hooksPath")
+        val (code, out) = git("config", "--local", "core.hooksPath", hooksDir)
+        if (code != 0) {
+            println("Could not set core.hooksPath: $out")
+            return@doLast
+        }
+        println("Set core.hooksPath to $hooksDir for this repository; commit-message hooks are active.")
+        if (inheritedCode == 0 && inherited.isNotEmpty() && inherited != hooksDir) {
+            println("  Note: this overrides '$inherited' here only. Use -PskipGitHooks to opt out.")
+        }
+    }
+}
+
+tasks.named("build") { dependsOn(installGitHooks) }

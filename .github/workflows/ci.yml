@@ -45,12 +45,39 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
         run: |
           if [ -n "$BASE" ] && [ -n "$HEAD" ]; then
             bash .github/scripts/check-tooling-references.sh "$BASE" "$HEAD"
+          elif [ -n "$PUSH_BEFORE" ] && [ "$PUSH_BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            # Backstop on main. The pull request check runs before the merge, so it never sees
+            # the message GitHub composes for a squashed merge -- which is exactly how seven
+            # attribution trailers reached the default branch in the first place.
+            bash .github/scripts/check-tooling-references.sh "$PUSH_BEFORE" "$PUSH_AFTER"
           else
             bash .github/scripts/check-tooling-references.sh
           fi
+
+      # The title and body are the other half of a squashed merge message, and neither passes
+      # through any git hook. A clean set of commits can still produce a dirty merge commit if
+      # the description carries a reference, so it is checked from the API rather than assumed.
+      - name: Check the pull request title and body
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          pattern="$(base64 -d < .github/tooling-patterns.b64 | tr -d '\n')"
+          gh api "repos/$REPO/pulls/$PR" --jq '.title, .body' > /tmp/pr-text.txt
+          if grep -Pn "$pattern" /tmp/pr-text.txt; then
+            echo "::error::The pull request title or body names a development tool." >&2
+            echo "A squashed merge composes its commit message from these, so this would land on main." >&2
+            exit 1
+          fi
+          echo "Pull request text clean."
 
   build:
     name: JDK 21
