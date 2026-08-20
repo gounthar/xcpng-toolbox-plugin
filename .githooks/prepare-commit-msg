@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+#
+# Strips tooling-attribution trailers before anyone sees the message.
+#
+# This runs ahead of commit-msg and does the quiet, boring half of the job. commit-msg
+# *refuses* a bad message, which is correct but adversarial: a rule that fires repeatedly on
+# something you did not type is a rule people learn to bypass with --no-verify, and a rule
+# bypassed by habit enforces nothing.
+#
+# So the common case -- an editor or assistant appending a Co-Authored-By trailer naming a
+# tool -- is simply removed here, silently and idempotently. Anything that survives to
+# commit-msg is prose somebody actually wrote, which is the case worth stopping to think
+# about.
+#
+# Deliberately narrow. It removes whole trailer LINES and nothing else; it will not rewrite a
+# sentence, because a hook that edits your prose is worse than one that rejects it.
+
+set -uo pipefail
+
+msg_file="${1:?prepare-commit-msg hook called without a message file}"
+root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+patterns_file="$root/.github/tooling-patterns.b64"
+[ -r "$patterns_file" ] || exit 0
+
+pattern="$(base64 -d < "$patterns_file" 2>/dev/null | tr -d '\n')"
+[ -n "$pattern" ] || exit 0
+
+# Only Co-Authored-By / Signed-off-by style trailers naming a tool. Nothing else is touched.
+before="$(wc -l < "$msg_file")"
+tmp="$(mktemp)" || exit 0
+grep -Pv "^\s*(Co-[Aa]uthored-[Bb]y|Generated-[Bb]y|Assisted-[Bb]y)\s*:.*$pattern" "$msg_file" > "$tmp" 2>/dev/null || cp "$msg_file" "$tmp"
+
+if ! cmp -s "$msg_file" "$tmp"; then
+  # Collapse the blank run a removed trailer block leaves behind.
+  awk 'BEGIN{blank=0} /^[[:space:]]*$/{blank++; next} {while(blank>1){print ""; blank--} if(blank==1){print ""; blank=0} print} END{print ""}' "$tmp" > "$msg_file"
+  after="$(wc -l < "$msg_file")"
+  echo "note: removed $((before - after)) tooling-attribution trailer line(s) from the commit message" >&2
+fi
+rm -f "$tmp"

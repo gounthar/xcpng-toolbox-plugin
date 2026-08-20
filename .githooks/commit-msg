@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+#
+# Rejects a commit message that names a development tool, before it becomes history.
+#
+# This is the fast half of the rule; .github/workflows/ci.yml runs the same check on every
+# pull request and is the half that cannot be skipped. This hook exists because fixing a
+# trailer at commit time costs nothing, while fixing it after a squashed merge costs a
+# history rewrite -- which is how this rule came to be enforced rather than merely written
+# down.
+#
+# Hooks are not installed by cloning. Turn them on once per clone:
+#
+#     git config core.hooksPath .githooks
+#
+# That command is deliberately not run for you by any script here, because a repository that
+# silently reconfigures git on checkout is worse than the problem it solves.
+
+set -uo pipefail
+
+msg_file="${1:?commit-msg hook called without a message file}"
+root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+patterns_file="$root/.github/tooling-patterns.b64"
+[ -r "$patterns_file" ] || exit 0
+
+pattern="$(base64 -d < "$patterns_file" 2>/dev/null | tr -d '\n')"
+[ -n "$pattern" ] || exit 0
+
+if grep -Pq "$pattern" "$msg_file"; then
+  echo "Refused: this commit message names a development tool." >&2
+  grep -Pn "$pattern" "$msg_file" | head -5 | sed 's/^/  /' >&2
+  cat >&2 <<'MSG'
+
+Nothing tracked in this repository names the tools used to write it. Remove the line and
+commit again. A Co-Authored-By trailer added automatically is the usual cause.
+
+To bypass in a genuine emergency: git commit --no-verify. CI will still refuse it.
+MSG
+  exit 1
+fi

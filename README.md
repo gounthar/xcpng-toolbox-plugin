@@ -66,8 +66,48 @@ Toolbox renders for you.
 ./gradlew compileKotlin
 ```
 
-JDK 21. Kotlin 2.3.10 is required rather than preferred; see the comment in
-`gradle/libs.versions.toml`.
+JDK 21, and pinned rather than preferred: `gradle/gradle-daemon-jvm.properties` sets
+`toolchainVersion=21` because a newer JDK fails while compiling the *build script*, with an
+error naming no file and no task.
+
+The Kotlin version is bounded on **both** sides, which is why it is not a routine bump. The
+compiler must be new enough to read the binary metadata in the Toolbox API jars, and
+`kotlin-stdlib` is supplied by Toolbox at runtime, so compiling above what the installed app
+bundles is a `NoSuchMethodError` that CI cannot see — CI only compiles. The same applies to
+`kotlinx-coroutines` and `kotlinx-serialization`, which are `compileOnly` for the same reason.
+The working is in `gradle/libs.versions.toml`, next to the values.
+
+### Git hooks
+
+`./gradlew build` points `core.hooksPath` at `.githooks` for this repository, prints that it did,
+and stays quiet afterwards. It sets the **local** value, so a global hooks directory of your own
+keeps working everywhere else; the note it prints says when it has overridden one. Opt out with
+`-PskipGitHooks`, or set it yourself:
+
+```
+git config core.hooksPath .githooks
+```
+
+Nothing tracked in this repository names the tools used to write it — not code, comments, commit
+messages, pull request titles or bodies. Four things enforce that, and only the last cannot be
+skipped:
+
+| Where | What it does |
+|---|---|
+| `prepare-commit-msg` | silently strips an attribution trailer before you see it |
+| `commit-msg` | refuses prose that names a tool, which is the case worth a second thought |
+| CI, on a pull request | scans tracked files, the commits, and the title and body |
+| CI, on a push to `main` | scans the pushed range, catching a squashed merge message |
+
+The last row is not hypothetical: seven attribution trailers reached the default branch through a
+squash, whose message no hook ever sees. Run the check yourself with:
+
+```
+.github/scripts/check-tooling-references.sh [base head]
+```
+
+Exit 0 clean, 1 a violation, 2 the check could not run — and read the 2, because a check that
+could not run must not look like one that passed.
 
 ## Related
 
