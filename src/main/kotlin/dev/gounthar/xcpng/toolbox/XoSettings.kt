@@ -78,7 +78,7 @@ class XoSettings(
     /**
      * An address typed by the user, which wins over whatever the pool reports.
      *
-     * This is the escape hatch for the open design problem in CLAUDE.md: `mainIpAddress` is only
+     * This is the escape hatch for the open address problem: `mainIpAddress` is only
      * trustworthy while a VM is running, and on the lab pool only 1 of 4 running VMs reported one
      * at all. A VM whose guest never talks to the host is otherwise unreachable forever, however
      * well the rest of the plugin works.
