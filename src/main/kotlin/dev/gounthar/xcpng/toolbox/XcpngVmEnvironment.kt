@@ -135,28 +135,14 @@ class XcpngVmEnvironment(
      */
     private inner class VmSshContentsView : SshEnvironmentContentsView {
         override suspend fun getConnectionInfo(): SshConnectionInfo {
-            // A halted VM is refused before the address is even considered. An override typed for
-            // a VM that is switched off is not wrong, it is just not connectable yet, and "start
-            // it first" is the actionable thing to say.
-            if (vm.powerState != XoPowerState.RUNNING) {
-                throw CannotConnectYet(
-                    "\"${vm.nameLabel}\" is ${vm.powerState.name.lowercase()}. Start it first.",
-                )
-            }
-            // The override wins over the pool. That ordering is the point of having one: the pool
-            // is the thing that could not answer.
-            val host = settings.sshHostFor(vm.uuid) ?: vm.mainIpAddress ?: throw CannotConnectYet(
-                "\"${vm.nameLabel}\" is running but reports no address to the pool, which " +
-                    "usually means the guest has no XCP-ng agent. Set one under " +
-                    "\"Connection settings…\" in this VM's menu.",
-            )
-            val user = settings.sshUserFor(vm.uuid) ?: settings.defaultSshUser
-                ?: throw CannotConnectYet(
-                    "\"${vm.nameLabel}\" is reachable at $host, but no SSH username is set. " +
-                        "Nothing in Xen Orchestra records one, so it has to be given under " +
-                        "\"Connection settings…\" in this VM's menu, or as a pool-wide default " +
-                        "in the provider's settings.",
-                )
+            // The reason lives in blockerFor so this method states one rule rather than three,
+            // and so the rule can be tested without Toolbox running.
+            blockerFor(vm, settings)?.let { throw CannotConnectYet(it.message) }
+            // Re-resolved rather than carried out of the blocker. These are the values being
+            // *used*, and a blocker that returned null has already proved both are present, which
+            // is what the non-null assertions rest on.
+            val host = settings.sshHostFor(vm.uuid) ?: vm.mainIpAddress!!
+            val user = settings.sshUserFor(vm.uuid) ?: settings.defaultSshUser!!
             val sshPort = settings.sshPortFor(vm.uuid)
             logger.info("XCP-ng: connecting to ${vm.uuid} as $user@$host:$sshPort.")
             // Only host, port and userName are abstract. Everything about authentication is a
@@ -164,7 +150,7 @@ class XcpngVmEnvironment(
             // installed runtime on 2026-08-19: shouldUseSystemConfiguration and
             // shouldUseSystemSshAgent are both true, and shouldAskForPassword is true. So the
             // user's own ~/.ssh/config, keys and agent apply, with a password prompt as the
-            // fallback, and this plugin never handles a credential. See the project notes.
+            // fallback, and this plugin never handles a credential.
             return object : SshConnectionInfo {
                 override val host: String = host
                 override val port: Int = sshPort
@@ -172,6 +158,7 @@ class XcpngVmEnvironment(
             }
         }
     }
+
 
     override fun setVisible(visibilityState: EnvironmentVisibilityState) {
         // The provider refreshes the whole pool when its page becomes visible, which covers this.
@@ -458,11 +445,62 @@ class XcpngVmEnvironment(
         Description(i18n.pnotr("${powerState.name.lowercase()} · ${uuid.take(8)}"))
 
     private class Description(override val description: LocalizableString) : EnvironmentDescription
+
+    companion object {
+        /**
+         * Why this VM cannot be connected to yet, or null when it can.
+         *
+         * Pure, and takes both inputs rather than reading the enclosing instance, so it is
+         * reachable from a test without Toolbox running. That is the same move that made
+         * `ConnectionSettingsPage.normalise` testable.
+         *
+         * The order matters and is not alphabetical. A halted VM is refused before the address is
+         * even looked at, because an override typed for a switched-off VM is not wrong — it is
+         * just not connectable yet, and "start it first" is the actionable thing to say. The
+         * override then wins over the pool, which is the entire point of having one: the pool is
+         * the thing that could not answer.
+         */
+        internal fun blockerFor(vm: XoVm, settings: XoSettings): ConnectBlocker? = when {
+            vm.powerState != XoPowerState.RUNNING -> ConnectBlocker(
+                "\"${vm.nameLabel}\" is ${vm.powerState.name.lowercase()}. Start it first.",
+                // Connection settings cannot start a VM, so offering them here would be a button
+                // that does not address what the sentence above just said.
+                fixableInSettings = false,
+            )
+
+            settings.sshHostFor(vm.uuid) == null && vm.mainIpAddress == null -> ConnectBlocker(
+                "\"${vm.nameLabel}\" is running but reports no address to the pool, which " +
+                    "usually means the guest has no XCP-ng agent. Set one under " +
+                    "\"Connection settings\u2026\" in this VM's menu.",
+                fixableInSettings = true,
+            )
+
+            settings.sshUserFor(vm.uuid) == null && settings.defaultSshUser == null -> ConnectBlocker(
+                "\"${vm.nameLabel}\" is reachable at " +
+                    "${settings.sshHostFor(vm.uuid) ?: vm.mainIpAddress}, but no SSH username " +
+                    "is set. Nothing in Xen Orchestra records one, so it has to be given under " +
+                    "\"Connection settings\u2026\" in this VM's menu, or as a pool-wide default " +
+                    "in the provider's settings.",
+                fixableInSettings = true,
+            )
+
+            else -> null
+        }
+    }
 }
 
 /**
+ * A reason a connect would be refused, and whether the connection-settings page can remove it.
+ *
+ * [fixableInSettings] exists so the issue does not offer a button that cannot help. A hint or a
+ * fix that appears under every failure teaches people to ignore all of them, which is the same
+ * reasoning as the `hint` parameter on the action builder.
+ */
+internal data class ConnectBlocker(val message: String, val fixableInSettings: Boolean)
+
+/**
  * Refusal to open an IDE against a VM, thrown from
- * [XcpngVmEnvironment.RefusedSshContentsView.getConnectionInfo].
+ * [XcpngVmEnvironment.VmSshContentsView.getConnectionInfo].
  *
  * **The class name is the headline the user reads**, which is the whole reason this type exists.
  * Measured on Toolbox 3.7.0.87111, 2026-08-19: a failed connect puts `Fatal error: <SimpleName>`

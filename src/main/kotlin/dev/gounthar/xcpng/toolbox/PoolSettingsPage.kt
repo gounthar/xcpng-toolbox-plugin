@@ -99,8 +99,8 @@ class PoolSettingsPage(
                 /**
                  * Closes even when it refuses, which looks wrong and is the only thing that works.
                  *
-                 * A popup raised from inside a `UiPage` is queued until that page closes — see
-                 * the project notes. An earlier version kept the page open on invalid input *and* raised a
+                 * A popup raised from inside a `UiPage` is queued until that page closes.
+                 * An earlier version kept the page open on invalid input *and* raised a
                  * popup, which are mutually exclusive: the page never closed, so the message never
                  * appeared, and a save that silently did nothing read as a save that worked.
                  *

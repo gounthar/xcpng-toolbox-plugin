@@ -4,12 +4,16 @@
 # Weekly rather than daily. This is a personal project with a handful of open pull requests;
 # a daily cadence would make dependabot most of the repository's traffic.
 #
-# One dependency deliberately has no automation and must not gain any: the Toolbox API
-# artifacts (com.jetbrains.toolbox:core-api, :ui-api, :remote-dev-api) come from
-# packages.jetbrains.team, not Maven Central, and dependabot does not read that registry.
-# That is fine, and arguably better — their maven-metadata.xml lists a stale <versions> set
-# while <release> and the jars are correct, so a tool trusting the list would propose the
-# wrong thing. Bump those by reading <release> by hand.
+# One dependency has no automation here: the Toolbox API artifacts
+# (com.jetbrains.toolbox:core-api, :ui-api, :remote-dev-api) come from
+# packages.jetbrains.team, not Maven Central, and dependabot is not configured for that
+# registry. Bump those by reading <release> by hand.
+#
+# CORRECTION, 2026-08-20. This paragraph used to add that automation would be "arguably
+# better" avoided because maven-metadata.xml lists a stale <versions> set. That was measured
+# false: all three artifacts carry 20 versions including both the current release and Coder's
+# pin, and each list agrees with its own <release>. The reason to keep this manual is the
+# registry, not the metadata.
 #
 # Kotlin is ignored on the same grounds, and this file is where the reason was already
 # written down and not acted on. The paragraph that stood here said a Kotlin bump was "a
@@ -34,6 +38,22 @@
 # a bot will walk through.
 #
 # Track these by re-reading bin/lib after a Toolbox upgrade, and bump them TO what is there.
+#
+# That instruction had no trigger. Toolbox self-upgraded 3.7.0.87111 -> 3.7.1.87197 on
+# 2026-08-20 mid-session, silently, and was noticed only because a log line changed its
+# version prefix. It also needed the app installed on the machine doing the reading.
+#
+# Neither is true any more. JetBrains publishes the build feed and, per build, a manifest of
+# what it bundles:
+#
+#   https://data.services.jetbrains.com/products/releases?code=TBA&latest=true
+#   https://resources.jetbrains.com/storage/third-party-libraries/toolbox/
+#     toolbox-<build>.third-party-libraries.json
+#
+# The second lists Kotlin, kotlinx.coroutines and kotlinx.serialization by display name, and
+# all three were verified against the installed 3.7.1.87197 bin/lib before this was written
+# down. That makes the check automatable without an install; tracked as an issue rather than
+# built here, because this repo has no updatecli yet.
 ---
 version: 2
 
