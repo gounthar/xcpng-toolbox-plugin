@@ -10,6 +10,7 @@ import com.jetbrains.toolbox.api.remoteDev.environments.SshEnvironmentContentsVi
 import com.jetbrains.toolbox.api.remoteDev.ssh.SshConnectionInfo
 import com.jetbrains.toolbox.api.remoteDev.states.CustomRemoteEnvironmentStateV2
 import com.jetbrains.toolbox.api.remoteDev.states.EnvironmentDescription
+import com.jetbrains.toolbox.api.remoteDev.states.EnvironmentIssue
 import com.jetbrains.toolbox.api.remoteDev.states.EnvironmentStateColorPalette
 import com.jetbrains.toolbox.api.remoteDev.states.EnvironmentStateIcons
 import com.jetbrains.toolbox.api.remoteDev.states.RemoteEnvironmentState
@@ -26,8 +27,12 @@ import dev.gounthar.xcpng.toolbox.xo.XoVm
 import dev.gounthar.xcpng.toolbox.xo.resumeVerb
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
 
 /**
@@ -135,28 +140,15 @@ class XcpngVmEnvironment(
      */
     private inner class VmSshContentsView : SshEnvironmentContentsView {
         override suspend fun getConnectionInfo(): SshConnectionInfo {
-            // A halted VM is refused before the address is even considered. An override typed for
-            // a VM that is switched off is not wrong, it is just not connectable yet, and "start
-            // it first" is the actionable thing to say.
-            if (vm.powerState != XoPowerState.RUNNING) {
-                throw CannotConnectYet(
-                    "\"${vm.nameLabel}\" is ${vm.powerState.name.lowercase()}. Start it first.",
-                )
-            }
-            // The override wins over the pool. That ordering is the point of having one: the pool
-            // is the thing that could not answer.
-            val host = settings.sshHostFor(vm.uuid) ?: vm.mainIpAddress ?: throw CannotConnectYet(
-                "\"${vm.nameLabel}\" is running but reports no address to the pool, which " +
-                    "usually means the guest has no XCP-ng agent. Set one under " +
-                    "\"Connection settings…\" in this VM's menu.",
-            )
-            val user = settings.sshUserFor(vm.uuid) ?: settings.defaultSshUser
-                ?: throw CannotConnectYet(
-                    "\"${vm.nameLabel}\" is reachable at $host, but no SSH username is set. " +
-                        "Nothing in Xen Orchestra records one, so it has to be given under " +
-                        "\"Connection settings…\" in this VM's menu, or as a pool-wide default " +
-                        "in the provider's settings.",
-                )
+            // One source of truth with getEnvironmentIssueFlow(). Splitting them is how the two
+            // drift: a row would offer a fix for a reason the connect no longer refuses on, or
+            // refuse for one the row never mentioned.
+            blockerFor(vm, settings)?.let { throw CannotConnectYet(it.message) }
+            // Re-resolved rather than carried out of the blocker. These are the values being
+            // *used*, and a blocker that returned null has already proved both are present, which
+            // is what the non-null assertions rest on.
+            val host = settings.sshHostFor(vm.uuid) ?: vm.mainIpAddress!!
+            val user = settings.sshUserFor(vm.uuid) ?: settings.defaultSshUser!!
             val sshPort = settings.sshPortFor(vm.uuid)
             logger.info("XCP-ng: connecting to ${vm.uuid} as $user@$host:$sshPort.")
             // Only host, port and userName are abstract. Everything about authentication is a
@@ -172,6 +164,61 @@ class XcpngVmEnvironment(
             }
         }
     }
+
+
+    /**
+     * The same refusal as [VmSshContentsView.getConnectionInfo], offered as something the user
+     * can act on rather than as a thrown exception.
+     *
+     * **PROBE, 2026-08-20. Nothing about how this renders has been clicked yet.** What is known
+     * comes from disassembling Toolbox 3.7.0.87111 and is recorded here so the click test has
+     * something to falsify:
+     *
+     * - `getEnvironmentIssueFlow()` is declared non-abstract in both the published artifact
+     *   (`remote-dev-api:1.10.80952`) and the installed runtime, and its default body is
+     *   `emptyFlow()`. Overriding it is purely additive; nothing depends on it today.
+     * - Toolbox collects it in `ClientConnectionIssueTracker.collectPluginIssues`, and the
+     *   collector body is exactly `issueFromPlugin.setValue(it)`.
+     * - `asProblemReport` turns each issue into a `ToolboxToClientMessage$ProblemReport`, mapping
+     *   `description`, `isFatal` and `isTransient` across, and turning every entry in [fixes] into
+     *   a `ProblemFix(label, action::run)`. So a fix really does become a button.
+     * - **It is collected per connection, not per row.** The tracker is built from a
+     *   `ClientToToolboxMessage.ConnectionRequest` and lives on `ClientConnectionHandlerState`,
+     *   which is constructed for one connection attempt. So this cannot annotate an idle
+     *   environment row, and the hope that it could is the first thing the click test kills.
+     *
+     * **An issue cannot be withdrawn.** The element type is non-nullable — the compiler rejected
+     * `Flow<EnvironmentIssue?>` outright — so there is no "never mind" value to emit, and
+     * `mapNotNull` below simply stops emitting once the blocker clears. Toolbox's own
+     * `issueFromPlugin` keeps the last one. That is survivable only because the tracker holding it
+     * is built per connection attempt, so the staleness cannot outlive the attempt that caused it.
+     * If this is ever reused for something longer-lived, that is the constraint to design around.
+     *
+     * The throw in [VmSshContentsView.getConnectionInfo] is deliberately **left in place**. If
+     * this renders, the two appear together and the duplication is the evidence; removing the
+     * throw first would leave nothing to compare against and no refusal at all if the flow turns
+     * out to be ignored.
+     */
+    override fun getEnvironmentIssueFlow(): Flow<EnvironmentIssue> =
+        // Keyed off state rather than recomputed per collection, so a VM that boots mid-attempt
+        // stops reporting that it is halted. Settings edits do not move state and so do not
+        // re-evaluate; that is a known hole and one of the things the click test should poke.
+        state.map { blockerFor(vm, settings) }
+            .distinctUntilChanged()
+            .mapNotNull { blocker ->
+                blocker?.let {
+                    EnvironmentIssue(
+                        i18n.pnotr(it.message),
+                        if (it.fixableInSettings) listOf(connectionSettingsAction()) else emptyList(),
+                        // Non-fatal on purpose: every one of these clears by itself once the VM
+                        // boots or the user fills in a username, and marking them fatal risks
+                        // suppressing the connect affordance for a VM that is merely still
+                        // starting. Whether isFatal does suppress it is one of the open questions.
+                        isFatal = false,
+                        isTransient = true,
+                    )
+                }
+            }
 
     override fun setVisible(visibilityState: EnvironmentVisibilityState) {
         // The provider refreshes the whole pool when its page becomes visible, which covers this.
@@ -309,7 +356,7 @@ class XcpngVmEnvironment(
      * never report an address — is a VM the user knows about in advance and can configure while
      * it is still switched off.
      */
-    private fun connectionSettingsAction(): ActionDescription =
+    private fun connectionSettingsAction(): RunnableActionDescription =
         action("Connection settings\u2026", busyState = null) {
             ui.showUiPageSuspending(
                 ConnectionSettingsPage(
@@ -344,7 +391,10 @@ class XcpngVmEnvironment(
          */
         hint: (String) -> String? = { null },
         block: suspend (XoClient) -> Unit,
-    ): ActionDescription = object : RunnableActionDescription {
+        // Narrower than the ActionDescription this used to return, so the result can also be an
+        // EnvironmentIssue fix. Every existing caller feeds actionsList, which takes the wider
+        // type, so nothing else moves.
+    ): RunnableActionDescription = object : RunnableActionDescription {
         override val label: LocalizableString = i18n.ptrl(label)
         override val isDangerous: Boolean = dangerous
 
@@ -458,11 +508,62 @@ class XcpngVmEnvironment(
         Description(i18n.pnotr("${powerState.name.lowercase()} · ${uuid.take(8)}"))
 
     private class Description(override val description: LocalizableString) : EnvironmentDescription
+
+    companion object {
+        /**
+         * Why this VM cannot be connected to yet, or null when it can.
+         *
+         * Pure, and takes both inputs rather than reading the enclosing instance, so it is
+         * reachable from a test without Toolbox running. That is the same move that made
+         * `ConnectionSettingsPage.normalise` testable.
+         *
+         * The order matters and is not alphabetical. A halted VM is refused before the address is
+         * even looked at, because an override typed for a switched-off VM is not wrong — it is
+         * just not connectable yet, and "start it first" is the actionable thing to say. The
+         * override then wins over the pool, which is the entire point of having one: the pool is
+         * the thing that could not answer.
+         */
+        internal fun blockerFor(vm: XoVm, settings: XoSettings): ConnectBlocker? = when {
+            vm.powerState != XoPowerState.RUNNING -> ConnectBlocker(
+                "\"${vm.nameLabel}\" is ${vm.powerState.name.lowercase()}. Start it first.",
+                // Connection settings cannot start a VM, so offering them here would be a button
+                // that does not address what the sentence above just said.
+                fixableInSettings = false,
+            )
+
+            settings.sshHostFor(vm.uuid) == null && vm.mainIpAddress == null -> ConnectBlocker(
+                "\"${vm.nameLabel}\" is running but reports no address to the pool, which " +
+                    "usually means the guest has no XCP-ng agent. Set one under " +
+                    "\"Connection settings\u2026\" in this VM's menu.",
+                fixableInSettings = true,
+            )
+
+            settings.sshUserFor(vm.uuid) == null && settings.defaultSshUser == null -> ConnectBlocker(
+                "\"${vm.nameLabel}\" is reachable at " +
+                    "${settings.sshHostFor(vm.uuid) ?: vm.mainIpAddress}, but no SSH username " +
+                    "is set. Nothing in Xen Orchestra records one, so it has to be given under " +
+                    "\"Connection settings\u2026\" in this VM's menu, or as a pool-wide default " +
+                    "in the provider's settings.",
+                fixableInSettings = true,
+            )
+
+            else -> null
+        }
+    }
 }
 
 /**
+ * A reason a connect would be refused, and whether the connection-settings page can remove it.
+ *
+ * [fixableInSettings] exists so the issue does not offer a button that cannot help. A hint or a
+ * fix that appears under every failure teaches people to ignore all of them, which is the same
+ * reasoning as the `hint` parameter on the action builder.
+ */
+internal data class ConnectBlocker(val message: String, val fixableInSettings: Boolean)
+
+/**
  * Refusal to open an IDE against a VM, thrown from
- * [XcpngVmEnvironment.RefusedSshContentsView.getConnectionInfo].
+ * [XcpngVmEnvironment.VmSshContentsView.getConnectionInfo].
  *
  * **The class name is the headline the user reads**, which is the whole reason this type exists.
  * Measured on Toolbox 3.7.0.87111, 2026-08-19: a failed connect puts `Fatal error: <SimpleName>`
