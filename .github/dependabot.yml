@@ -11,10 +11,16 @@
 # while <release> and the jars are correct, so a tool trusting the list would propose the
 # wrong thing. Bump those by reading <release> by hand.
 #
-# Kotlin is the other one to watch. 2.3.10 matches the binary metadata inside the Toolbox
-# jars; building against them with an older compiler dies with an internal compiler error.
-# A dependabot bump of the Kotlin plugin is therefore a real change to test, not a routine
-# one to wave through.
+# Kotlin is ignored on the same grounds, and this file is where the reason was already
+# written down and not acted on. The paragraph that stood here said a Kotlin bump was "a
+# real change to test, not a routine one to wave through" — and then left Kotlin out of the
+# ignore list below, so #15 raised 2.3.10 -> 2.4.10 and merged green. That is the failure
+# named four paragraphs down, committed in the file that names it.
+#
+# The constraint is two-sided. The compiler must be new enough to read the Kotlin 2.3.0
+# binary metadata in the Toolbox API jars, and kotlin-stdlib is host-provided as well, so
+# the pin is bounded above by whatever bin/lib carries (2.4.10-RC2 in Toolbox 3.7.0.87111).
+# Full working in gradle/libs.versions.toml, next to the value itself.
 #
 # kotlinx-coroutines and kotlinx-serialization are ignored outright, and that is not
 # neglect. Both are compileOnly because Toolbox ships them, so their pinned value is a
@@ -44,6 +50,11 @@ updates:
       # bumped by hand after a Toolbox upgrade. See the note at the top of this file.
       - dependency-name: org.jetbrains.kotlinx:kotlinx-coroutines-core
       - dependency-name: org.jetbrains.kotlinx:kotlinx-serialization-json
+      # Same reason: kotlin-stdlib is host-provided too, so the Kotlin version has a
+      # ceiling as well as a floor. Both plugins read version.ref = "kotlin", so both
+      # are named even though dependabot reported only the first in #15.
+      - dependency-name: org.jetbrains.kotlin.jvm
+      - dependency-name: org.jetbrains.kotlin.plugin.serialization
 
   - package-ecosystem: github-actions
     directory: /
