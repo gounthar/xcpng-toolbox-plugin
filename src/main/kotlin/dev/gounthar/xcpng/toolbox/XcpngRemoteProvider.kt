@@ -24,10 +24,23 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.net.URI
 
+/**
+ * The name Toolbox shows for this provider, and the string every user actually reads.
+ *
+ * It must stay in step with `readableName` in the `generateExtensionJson` task in
+ * `build.gradle.kts`. They are two different surfaces and changing one does not change the
+ * other: `readableName` names the *plugin*, this names the *provider* in the environment list.
+ * PR #6 changed only the manifest and its commit message claimed that field was "the only one
+ * every user sees"; the list still read "XCP-ng" on the next launch, verified on screen
+ * 2026-08-20. `RemoteProvider.getName()` is final, so this constructor argument is the only
+ * way to set it.
+ */
+private const val PROVIDER_NAME = "XCP-ng (unofficial)"
+
 /** Lists the VMs on a pool as Toolbox environments. */
 class XcpngRemoteProvider(
     serviceLocator: ServiceLocator,
-) : RemoteProvider("XCP-ng") {
+) : RemoteProvider(PROVIDER_NAME) {
 
     private val i18n = serviceLocator.getService(LocalizableStringFactory::class.java)
     private val logger = serviceLocator.getService(Logger::class.java)
