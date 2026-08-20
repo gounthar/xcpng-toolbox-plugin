@@ -10,7 +10,6 @@ import com.jetbrains.toolbox.api.remoteDev.environments.SshEnvironmentContentsVi
 import com.jetbrains.toolbox.api.remoteDev.ssh.SshConnectionInfo
 import com.jetbrains.toolbox.api.remoteDev.states.CustomRemoteEnvironmentStateV2
 import com.jetbrains.toolbox.api.remoteDev.states.EnvironmentDescription
-import com.jetbrains.toolbox.api.remoteDev.states.EnvironmentIssue
 import com.jetbrains.toolbox.api.remoteDev.states.EnvironmentStateColorPalette
 import com.jetbrains.toolbox.api.remoteDev.states.EnvironmentStateIcons
 import com.jetbrains.toolbox.api.remoteDev.states.RemoteEnvironmentState
@@ -27,12 +26,8 @@ import dev.gounthar.xcpng.toolbox.xo.XoVm
 import dev.gounthar.xcpng.toolbox.xo.resumeVerb
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
 
 /**
@@ -140,9 +135,8 @@ class XcpngVmEnvironment(
      */
     private inner class VmSshContentsView : SshEnvironmentContentsView {
         override suspend fun getConnectionInfo(): SshConnectionInfo {
-            // One source of truth with getEnvironmentIssueFlow(). Splitting them is how the two
-            // drift: a row would offer a fix for a reason the connect no longer refuses on, or
-            // refuse for one the row never mentioned.
+            // The reason lives in blockerFor so this method states one rule rather than three,
+            // and so the rule can be tested without Toolbox running.
             blockerFor(vm, settings)?.let { throw CannotConnectYet(it.message) }
             // Re-resolved rather than carried out of the blocker. These are the values being
             // *used*, and a blocker that returned null has already proved both are present, which
@@ -165,60 +159,6 @@ class XcpngVmEnvironment(
         }
     }
 
-
-    /**
-     * The same refusal as [VmSshContentsView.getConnectionInfo], offered as something the user
-     * can act on rather than as a thrown exception.
-     *
-     * **PROBE, 2026-08-20. Nothing about how this renders has been clicked yet.** What is known
-     * comes from disassembling Toolbox 3.7.0.87111 and is recorded here so the click test has
-     * something to falsify:
-     *
-     * - `getEnvironmentIssueFlow()` is declared non-abstract in both the published artifact
-     *   (`remote-dev-api:1.10.80952`) and the installed runtime, and its default body is
-     *   `emptyFlow()`. Overriding it is purely additive; nothing depends on it today.
-     * - Toolbox collects it in `ClientConnectionIssueTracker.collectPluginIssues`, and the
-     *   collector body is exactly `issueFromPlugin.setValue(it)`.
-     * - `asProblemReport` turns each issue into a `ToolboxToClientMessage$ProblemReport`, mapping
-     *   `description`, `isFatal` and `isTransient` across, and turning every entry in [fixes] into
-     *   a `ProblemFix(label, action::run)`. So a fix really does become a button.
-     * - **It is collected per connection, not per row.** The tracker is built from a
-     *   `ClientToToolboxMessage.ConnectionRequest` and lives on `ClientConnectionHandlerState`,
-     *   which is constructed for one connection attempt. So this cannot annotate an idle
-     *   environment row, and the hope that it could is the first thing the click test kills.
-     *
-     * **An issue cannot be withdrawn.** The element type is non-nullable — the compiler rejected
-     * `Flow<EnvironmentIssue?>` outright — so there is no "never mind" value to emit, and
-     * `mapNotNull` below simply stops emitting once the blocker clears. Toolbox's own
-     * `issueFromPlugin` keeps the last one. That is survivable only because the tracker holding it
-     * is built per connection attempt, so the staleness cannot outlive the attempt that caused it.
-     * If this is ever reused for something longer-lived, that is the constraint to design around.
-     *
-     * The throw in [VmSshContentsView.getConnectionInfo] is deliberately **left in place**. If
-     * this renders, the two appear together and the duplication is the evidence; removing the
-     * throw first would leave nothing to compare against and no refusal at all if the flow turns
-     * out to be ignored.
-     */
-    override fun getEnvironmentIssueFlow(): Flow<EnvironmentIssue> =
-        // Keyed off state rather than recomputed per collection, so a VM that boots mid-attempt
-        // stops reporting that it is halted. Settings edits do not move state and so do not
-        // re-evaluate; that is a known hole and one of the things the click test should poke.
-        state.map { blockerFor(vm, settings) }
-            .distinctUntilChanged()
-            .mapNotNull { blocker ->
-                blocker?.let {
-                    EnvironmentIssue(
-                        i18n.pnotr(it.message),
-                        if (it.fixableInSettings) listOf(connectionSettingsAction()) else emptyList(),
-                        // Non-fatal on purpose: every one of these clears by itself once the VM
-                        // boots or the user fills in a username, and marking them fatal risks
-                        // suppressing the connect affordance for a VM that is merely still
-                        // starting. Whether isFatal does suppress it is one of the open questions.
-                        isFatal = false,
-                        isTransient = true,
-                    )
-                }
-            }
 
     override fun setVisible(visibilityState: EnvironmentVisibilityState) {
         // The provider refreshes the whole pool when its page becomes visible, which covers this.
@@ -356,7 +296,7 @@ class XcpngVmEnvironment(
      * never report an address — is a VM the user knows about in advance and can configure while
      * it is still switched off.
      */
-    private fun connectionSettingsAction(): RunnableActionDescription =
+    private fun connectionSettingsAction(): ActionDescription =
         action("Connection settings\u2026", busyState = null) {
             ui.showUiPageSuspending(
                 ConnectionSettingsPage(
@@ -391,10 +331,7 @@ class XcpngVmEnvironment(
          */
         hint: (String) -> String? = { null },
         block: suspend (XoClient) -> Unit,
-        // Narrower than the ActionDescription this used to return, so the result can also be an
-        // EnvironmentIssue fix. Every existing caller feeds actionsList, which takes the wider
-        // type, so nothing else moves.
-    ): RunnableActionDescription = object : RunnableActionDescription {
+    ): ActionDescription = object : RunnableActionDescription {
         override val label: LocalizableString = i18n.ptrl(label)
         override val isDangerous: Boolean = dangerous
 
