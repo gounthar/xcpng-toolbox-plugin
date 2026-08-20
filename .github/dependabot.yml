@@ -15,6 +15,19 @@
 # jars; building against them with an older compiler dies with an internal compiler error.
 # A dependabot bump of the Kotlin plugin is therefore a real change to test, not a routine
 # one to wave through.
+#
+# kotlinx-coroutines and kotlinx-serialization are ignored outright, and that is not
+# neglect. Both are compileOnly because Toolbox ships them, so their pinned value is a
+# RUNTIME FLOOR read out of bin/lib in the installed app — not a release to keep current.
+# Raising one lifts the compile ceiling above the runtime floor, and CI cannot catch it
+# because CI only compiles; the failure is a NoSuchMethodError inside Toolbox.
+#
+# This is written down because it already happened: #12 and #13 raised both on 2026-08-20
+# and merged green, past a comment in libs.versions.toml that named the exact bundled jar
+# the pin was matched to. A version constraint whose reason lives only in a comment is one
+# a bot will walk through.
+#
+# Track these by re-reading bin/lib after a Toolbox upgrade, and bump them TO what is there.
 ---
 version: 2
 
@@ -26,6 +39,11 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - dependencies
+    ignore:
+      # Host-provided at runtime by Toolbox. Pinned to the installed app's bin/lib,
+      # bumped by hand after a Toolbox upgrade. See the note at the top of this file.
+      - dependency-name: org.jetbrains.kotlinx:kotlinx-coroutines-core
+      - dependency-name: org.jetbrains.kotlinx:kotlinx-serialization-json
 
   - package-ecosystem: github-actions
     directory: /
