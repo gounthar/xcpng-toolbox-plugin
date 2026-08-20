@@ -1,0 +1,78 @@
+# Builds the plugin zip at a released version and attaches it to that release.
+#
+# Triggering on `release: published` rather than on a tag push is deliberate: the release
+# starts life as a Release Drafter draft, and publishing that draft is what creates the tag.
+# Watching the release event means the one human action fires exactly one build, with the
+# release already there to upload into.
+---
+name: release
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to rebuild and reattach a zip to
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  zip:
+    name: build and attach the plugin zip
+    runs-on: ubuntu-latest
+    permissions:
+      # Uploading a release asset is a write to repository contents.
+      contents: write
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      # A tag name is only settable by someone who can already push here, but it reaches a
+      # checkout ref, a Gradle property and a shell command, so it is checked against the
+      # shape releases actually use before any of that. It also catches the likelier mistake
+      # by far: a hand-typed tag that would produce a zip versioned something absurd.
+      - name: The tag must look like a version
+        run: |
+          printf '%s' "$TAG" | grep -Eq '^[0-9]+\.[0-9]+(\.[0-9]+)?$' || {
+            echo "::error::tag '$TAG' is not a version like 0.1.0"
+            exit 1
+          }
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+
+      # 21, matching gradle/gradle-daemon-jvm.properties. See the comment in ci.yml: a newer
+      # JDK fails while compiling the build script with an error naming no file and no task.
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Validate the Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v6
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      # -Pversion so the zip, the jar inside it and extension.json all carry the released
+      # version rather than whatever gradle.properties happens to hold on that commit.
+      - name: Build the plugin zip
+        run: ./gradlew packagePlugin -Pversion="$TAG"
+
+      - name: Attach it to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          zip="$(find build/distributions -name '*.zip' -print -quit)"
+          test -n "$zip" || {
+            echo "::error::packagePlugin produced no zip under build/distributions"
+            exit 1
+          }
+          echo "attaching $zip"
+          gh release upload "$TAG" "$zip" --clobber --repo "$GITHUB_REPOSITORY"
