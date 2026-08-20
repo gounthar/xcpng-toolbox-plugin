@@ -1,0 +1,31 @@
+# Keeps a draft release open on main, accumulating merged pull requests into release notes
+# and computing the next version from their labels. It never publishes: a human does that,
+# and that press creates the tag, which fires release.yml to build and attach the zip.
+#
+# Configuration lives in .github/release-drafter.yml.
+---
+name: release-drafter
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  draft:
+    name: update the release draft
+    runs-on: ubuntu-latest
+    permissions:
+      # Creating and updating the draft release is a write to repository contents. The
+      # workflow-level `contents: read` above stays as the floor for anything added later.
+      contents: write
+      # Reading the labels on merged pull requests, which is how the version is resolved.
+      pull-requests: read
+    steps:
+      - uses: release-drafter/release-drafter@v7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,79 @@
+# Release Drafter keeps one draft release open on main, accumulating merged pull requests
+# into notes and computing the next version from their labels. Nothing is published until a
+# human presses publish; that press creates the tag, which fires `release.yml` to build and
+# attach the plugin zip.
+#
+# This mirrors gounthar/xcpng-cloud-plugin deliberately, so the two XCP-ng repositories are
+# released the same way. Note it is label-driven, not conventional-commit-driven, even though
+# this repository writes conventional commits strictly — the version comes from the labels on
+# the merged pull request, so a release still needs a human to have labelled it or to accept
+# the patch default.
+---
+name-template: '$RESOLVED_VERSION'
+tag-template: '$RESOLVED_VERSION'
+
+categories:
+  - title: Features
+    labels:
+      - enhancement
+  - title: Bug fixes
+    labels:
+      - bug
+  - title: Documentation
+    labels:
+      - documentation
+  - title: Build, CI, and dependencies
+    labels:
+      - build
+      - ci
+      - dependencies
+      - github_actions
+
+# `default: patch` matters more than any individual entry: an unlabelled pull request still
+# lands somewhere sensible instead of silently deciding the version.
+version-resolver:
+  major:
+    labels:
+      - major
+      - breaking
+  minor:
+    labels:
+      - minor
+      - enhancement
+  patch:
+    labels:
+      - patch
+      - bug
+      - documentation
+      - dependencies
+      - build
+      - ci
+      - github_actions
+  default: patch
+
+exclude-labels:
+  - skip-changelog
+
+change-template: '- $TITLE (#$NUMBER) @$AUTHOR'
+no-changes-template: '- No user-visible changes'
+
+template: |
+  $CHANGES
+
+  **Full changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...$RESOLVED_VERSION
+
+  ## Installing
+
+  This is not a JetBrains Marketplace plugin, and it is not built, endorsed or supported by
+  Vates. Download the zip below and extract it into the Toolbox **cache** plugins directory:
+
+  | OS | Path |
+  |---|---|
+  | Windows | `%LOCALAPPDATA%\JetBrains\Toolbox\cache\plugins\dev.gounthar.xcpng.toolbox` |
+  | macOS | `~/Library/Caches/JetBrains/Toolbox/plugins/dev.gounthar.xcpng.toolbox` |
+  | Linux | `$XDG_CACHE_HOME/JetBrains/Toolbox/plugins/dev.gounthar.xcpng.toolbox` |
+
+  Quit Toolbox first: it holds its settings in memory and rewrites them on exit, so an
+  install while it runs can be clobbered. Note the path is the **cache** directory, not
+  `.../Toolbox/plugins`, which is where plugins keep their settings and where Toolbox will
+  never look for code.
