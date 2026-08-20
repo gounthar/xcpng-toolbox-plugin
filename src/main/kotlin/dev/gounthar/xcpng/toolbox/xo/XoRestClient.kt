@@ -59,16 +59,16 @@ class XoRestClient(
 
     override fun ping() {
         // Deliberately blocking: a settings page's test-connection button wants an answer, and a
-        // failure here should surface as an exception with XO's own status code in it.
+        // failure here should surface as an exception saying what is actually wrong.
         val response = get("/vms?limit=1")
         if (response.status != 200) {
-            error("Xen Orchestra returned ${response.status} for /vms. Check the URL and token.")
+            error(xoFailureMessage("/vms", response.status, response.body))
         }
     }
 
     override suspend fun listVms(): List<XoVm> = withContext(Dispatchers.IO) {
         val response = get("/vms?fields=$vmFields")
-        require(response.status == 200) { "GET /vms returned ${response.status}: ${response.body.take(200)}" }
+        require(response.status == 200) { xoFailureMessage("/vms", response.status, response.body) }
         json.parseToJsonElement(response.body).jsonArray.map { it.jsonObject.toXoVm() }
     }
 
@@ -77,7 +77,7 @@ class XoRestClient(
         // 404 is a real answer, not a failure: the VM was deleted in XO while Toolbox had it on
         // screen. Anything else is a transport or auth problem and should be loud.
         if (response.status == 404) return@withContext null
-        require(response.status == 200) { "GET /vms/$uuid returned ${response.status}: ${response.body.take(200)}" }
+        require(response.status == 200) { xoFailureMessage("/vms/$uuid", response.status, response.body) }
         json.parseToJsonElement(response.body).jsonObject.toXoVm()
     }
 
@@ -102,7 +102,7 @@ class XoRestClient(
     override suspend fun listSnapshots(vm: XoVm): List<XoSnapshot> = withContext(Dispatchers.IO) {
         val response = get("/vm-snapshots?fields=$snapshotFields")
         require(response.status == 200) {
-            "GET /vm-snapshots returned ${response.status}: ${response.body.take(200)}"
+            xoFailureMessage("/vm-snapshots", response.status, response.body)
         }
         json.parseToJsonElement(response.body).jsonArray
             .map { it.jsonObject }
