@@ -10,10 +10,22 @@ toolbox-plugin-api = "1.10.80952"
 # internal compiler error plus "Module was compiled with an incompatible version of
 # Kotlin" for every toolbox jar. Coder pins 2.3.10 for the same reason.
 kotlin = "2.4.10"
-coroutines = "1.11.0"
-# Bundled by Toolbox (kotlinx-serialization-json-jvm-1.9.0.jar in bin/lib) and matched by
-# Coder's provided-dependency filter, so it is compileOnly and never packaged.
-serialization = "1.11.0"
+# These two are NOT "keep them fresh" dependencies. They are compileOnly because Toolbox
+# supplies them at runtime, so their value is a RUNTIME FLOOR read out of the installed
+# app, not the newest release. Raising either one puts the compile ceiling above the
+# runtime floor, and nothing in CI can see that: CI only compiles, while the failure is a
+# NoSuchMethodError inside Toolbox. Same shape as the java.net.http trap in the project notes.
+#
+# Measured in Toolbox 3.7.0.87111, bin/lib:
+#   kotlinx-coroutines-core-1.10.2.jar
+#   kotlinx-serialization-json-jvm-1.9.0.jar
+#
+# Bump these only after re-reading that directory, and bump them TO what it contains.
+# dependabot is told to leave them alone in .github/dependabot.yml; it raised both on
+# 2026-08-20 (#12, #13) and the comment explaining the pin survived while the value it
+# explained did not.
+coroutines = "1.10.2"
+serialization = "1.9.0"
 
 [libraries]
 toolbox-core-api = { module = "com.jetbrains.toolbox:core-api", version.ref = "toolbox-plugin-api" }
