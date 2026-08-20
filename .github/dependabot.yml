@@ -1,0 +1,36 @@
+# Dependabot for the two ecosystems this repository actually has: Gradle, and the GitHub
+# Actions the workflows pin.
+#
+# Weekly rather than daily. This is a personal project with a handful of open pull requests;
+# a daily cadence would make dependabot most of the repository's traffic.
+#
+# One dependency deliberately has no automation and must not gain any: the Toolbox API
+# artifacts (com.jetbrains.toolbox:core-api, :ui-api, :remote-dev-api) come from
+# packages.jetbrains.team, not Maven Central, and dependabot does not read that registry.
+# That is fine, and arguably better — their maven-metadata.xml lists a stale <versions> set
+# while <release> and the jars are correct, so a tool trusting the list would propose the
+# wrong thing. Bump those by reading <release> by hand.
+#
+# Kotlin is the other one to watch. 2.3.10 matches the binary metadata inside the Toolbox
+# jars; building against them with an older compiler dies with an internal compiler error.
+# A dependabot bump of the Kotlin plugin is therefore a real change to test, not a routine
+# one to wave through.
+---
+version: 2
+
+updates:
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    labels:
+      - dependencies
+      - github_actions
