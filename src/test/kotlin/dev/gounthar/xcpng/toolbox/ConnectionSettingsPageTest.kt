@@ -137,7 +137,7 @@ class ConnectionSettingsPageTest {
     /**
      * Documents a real edge rather than endorsing it: a leading `@` leaves nothing before the
      * delimiter, so there is no username to lift and the string is left as typed. Storing `@host`
-     * is wrong, but it is visibly wrong on the field, which is the best this page can do — it has
+     * is wrong, but it is visibly wrong on the field, which is the best this page can do: it has
      * no way to report a refusal.
      */
     @Test
@@ -182,7 +182,7 @@ class ConnectionSettingsPageTest {
     /**
      * `ssh -p 2222 vm.local` has no `@` to anchor on, and picking a token out of it would store
      * `2222` as the hostname. Blank is the honest answer: the field visibly shows nothing saved,
-     * which is the most this page can say — it has no way to report a refusal.
+     * which is the most this page can say: it has no way to report a refusal.
      */
     @Test
     fun `an ssh command we cannot parse yields blank rather than a wrong host`() {
@@ -226,7 +226,7 @@ class ConnectionSettingsPageTest {
 
     /**
      * Both values were lost before: the address's port was stripped off the host, then dropped
-     * because the port field it would have gone into was not blank — and that field was then
+     * because the port field it would have gone into was not blank, and that field was then
      * itself cleared for being unparseable.
      */
     @Test

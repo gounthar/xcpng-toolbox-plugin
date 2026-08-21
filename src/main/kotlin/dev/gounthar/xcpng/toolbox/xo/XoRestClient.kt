@@ -213,7 +213,7 @@ class XoRestClient(
  *
  * The cast is `as?` rather than `jsonPrimitive` on purpose, and it is the whole point of this
  * function. `jsonPrimitive` **throws** on a `JsonObject` or a `JsonArray` rather than returning
- * null, so reading a field XO decided to nest turns a missing value into an exception — and the
+ * null, so reading a field XO decided to nest turns a missing value into an exception, and the
  * caller that hurts most is [xoFailureMessage], whose entire job is to explain a failure and
  * which would instead throw while doing it. That is not hypothetical here: `xenTools` is declared
  * a string in XO's own OpenAPI document and arrives as an object.
@@ -232,7 +232,7 @@ internal fun JsonObject.str(key: String): String? =
  *
  * `internal` rather than private so a test can hold it against captured XO JSON. That is worth a
  * widened visibility: the `mainIpAddress` rule below is the single measured behaviour the plugin
- * most depends on, and it is invisible from the outside — a client that returned the stale
+ * most depends on, and it is invisible from the outside: a client that returned the stale
  * address would look entirely healthy until an IDE tried to dial it.
  */
 internal fun JsonObject.toXoVm(): XoVm = XoVm(

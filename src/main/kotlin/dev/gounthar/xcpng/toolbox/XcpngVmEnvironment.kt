@@ -54,7 +54,7 @@ class XcpngVmEnvironment(
     private val scope: CoroutineScope,
     /**
      * A fresh client per call rather than a shared one. [dev.gounthar.xcpng.toolbox.xo.XoRestClient]
-     * holds no session — its `close()` is a no-op and every call opens its own connection — so
+     * holds no session (its `close()` is a no-op and every call opens its own connection), so
      * this costs nothing and keeps the environment from outliving a client whose token has since
      * been rotated in settings.
      */
@@ -116,7 +116,7 @@ class XcpngVmEnvironment(
      * user-initiated callback and nothing modal belongs in it.
      *
      * **It must never throw.** Throwing here refuses during *enumeration*, which put one stack
-     * trace per VM per refresh into the log at ERROR — eleven per launch on this pool, for VMs
+     * trace per VM per refresh into the log at ERROR: eleven per launch on this pool, for VMs
      * nobody had touched, through to 16:12 on 2026-08-19. Anything that can fail belongs one
      * level down in [VmSshContentsView.getConnectionInfo], which Toolbox calls only when somebody
      * actually connects.
@@ -292,8 +292,8 @@ class XcpngVmEnvironment(
      * Where the username and the address override are set.
      *
      * Offered in every power state on purpose. The natural instinct is to show it only when a
-     * connect has already failed, but the case it exists for — a guest with no agent, which will
-     * never report an address — is a VM the user knows about in advance and can configure while
+     * connect has already failed, but the case it exists for (a guest with no agent, which will
+     * never report an address) is a VM the user knows about in advance and can configure while
      * it is still switched off.
      */
     private fun connectionSettingsAction(): ActionDescription =
@@ -315,7 +315,7 @@ class XcpngVmEnvironment(
      *
      * [busyState] is shown while the call is in flight and then thrown away, because the state
      * that gets published afterwards is re-read from the pool rather than assumed. `sync=true`
-     * means XO answers when the work is done, so the window is short — but a Start that takes
+     * means XO answers when the work is done, so the window is short, but a Start that takes
      * four seconds with no visible change is indistinguishable from a dead button.
      */
     private fun action(
@@ -351,7 +351,7 @@ class XcpngVmEnvironment(
                 if (busyState != null) state.value = busyState
                 val failure = runCatching { clientFactory().use { block(it) } }.exceptionOrNull()
                 // Re-read before reporting, not after. The pool is the authority on what state the
-                // VM ended in — a refused clean shutdown leaves it running — and doing this first
+                // VM ended in (a refused clean shutdown leaves it running), and doing this first
                 // means the row behind the popup is already correct when the user dismisses it.
                 refreshSelf()
                 if (failure == null) return@launch
@@ -371,13 +371,13 @@ class XcpngVmEnvironment(
      *
      * Republishes [state] unconditionally, and that is load-bearing rather than defensive.
      * [update] skips everything when the pool reports no change, but the busy state an action sets
-     * before calling out is **not** derived from [vm] — so an action that leaves the VM exactly as
+     * before calling out is **not** derived from [vm], so an action that leaves the VM exactly as
      * it found it would return to a row still showing `Activating` or `Restarting`, with nothing
      * left to ever clear it. Measured 2026-08-19: "Revert to snapshot" on a VM with no snapshots
      * showed its popup and stranded the row on Restarting permanently.
      *
-     * Writing the same value back costs nothing — [MutableStateFlow] only emits on a distinct
-     * value — so this is free in the ordinary case.
+     * Writing the same value back costs nothing ([MutableStateFlow] only emits on a distinct
+     * value), so this is free in the ordinary case.
      */
     private suspend fun refreshSelf() {
         runCatching { clientFactory().use { it.getVm(vm.uuid) } }
@@ -402,8 +402,8 @@ class XcpngVmEnvironment(
     /**
      * XAPI power states mapped onto something Toolbox will render as *settled*.
      *
-     * The obvious mapping is straight onto [StandardRemoteEnvironmentState] — Active, Inactive,
-     * Hibernated — and that is what this did first. It produced a permanently rotating indicator
+     * The obvious mapping is straight onto [StandardRemoteEnvironmentState] (Active, Inactive,
+     * Hibernated), and that is what this did first. It produced a permanently rotating indicator
      * on every halted row: Toolbox picks the icon for a standard state itself, and for a settled
      * but unreachable one it picks an animated [EnvironmentStateIcons.Connecting]. A row that has
      * finished shutting down then looks identical to one still shutting down, which destroys the
@@ -455,7 +455,7 @@ class XcpngVmEnvironment(
          * `ConnectionSettingsPage.normalise` testable.
          *
          * The order matters and is not alphabetical. A halted VM is refused before the address is
-         * even looked at, because an override typed for a switched-off VM is not wrong — it is
+         * even looked at, because an override typed for a switched-off VM is not wrong; it is
          * just not connectable yet, and "start it first" is the actionable thing to say. The
          * override then wins over the pool, which is the entire point of having one: the pool is
          * the thing that could not answer.
@@ -509,7 +509,7 @@ internal data class ConnectBlocker(val message: String, val fixableInSettings: B
  * clicked Connect was a Java type.
  *
  * Keep the name a readable phrase, and keep the specifics in the message where the detail view
- * shows them: the three cases this covers — halted, running with no address, running with an
- * address but no known username — cannot all fit in one class name.
+ * shows them: the three cases this covers (halted, running with no address, running with an
+ * address but no known username) cannot all fit in one class name.
  */
 class CannotConnectYet(message: String) : IllegalStateException("Cannot connect yet. $message")

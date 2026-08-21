@@ -17,7 +17,7 @@ import kotlin.test.assertTrue
  * that says whether a guest is talking at all.
  *
  * The stale-address rule is the one that matters. On the lab pool 4 of 6 halted VMs served an
- * address and only 1 of 4 running ones did — exactly backwards from intuition — so a client that
+ * address and only 1 of 4 running ones did (exactly backwards from intuition), so a client that
  * passed the field straight through would look healthy right up to the moment an IDE dialled a
  * machine that is not there.
  */
@@ -95,7 +95,7 @@ class XoVmParsingTest {
 
     /**
      * `xentools` is declared in XO's schema and was returned on 0 of 10 VMs here, so the fallback
-     * is close to dead code — but it is the documented field, so it stays covered.
+     * is close to dead code, but it is the documented field, so it stays covered.
      */
     @Test
     fun `xentools is the fallback when os_version is absent entirely`() {

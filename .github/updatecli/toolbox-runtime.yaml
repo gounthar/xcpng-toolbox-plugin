@@ -59,19 +59,19 @@ actions:
         runtime inside Toolbox with a `NoSuchMethodError` that CI structurally cannot see.
 
         Read the diff first. If only `build:` moved and the three `bundled:` values are
-        unchanged, nothing is owed beyond merging this — that is the common case.
+        unchanged, nothing is owed beyond merging this, and that is the common case.
 
         If a `bundled:` value did move:
 
         - [ ] Install the new Toolbox on a machine you can launch it on.
         - [ ] Confirm the manifest against the app: `ls <toolbox>/bin/lib | grep -E 'kotlin-stdlib|kotlinx-coroutines-core|kotlinx-serialization-json'`. The published manifest has matched `bin/lib` every time it has been checked, but it is a claim about the build, not about your install.
         - [ ] Decide whether the pin follows. A bundled version going *up* raises the ceiling and nothing is forced; a bundled version going *down* means an existing pin may now be above the runtime, which is the case that actually breaks.
-        - [ ] If a pin changes: `./gradlew installPlugin`, launch Toolbox, and read the log for `XCP-ng: <n> VMs from <url>`. That one line is the smoke test — it exercises all three host-provided libraries at once, stdlib to load the class, coroutines to run the suspend call, serialization to parse the REST response — so a launch reaching it with no `LinkageError`, `NoSuchMethodError`, `NoClassDefFoundError` or `VerifyError` tests the ceiling rather than merely that classes resolve.
+        - [ ] If a pin changes: `./gradlew installPlugin`, launch Toolbox, and read the log for `XCP-ng: <n> VMs from <url>`. That one line is the smoke test: it exercises all three host-provided libraries at once, stdlib to load the class, coroutines to run the suspend call, serialization to parse the REST response. So a launch reaching it with no `LinkageError`, `NoSuchMethodError`, `NoClassDefFoundError` or `VerifyError` tests the ceiling rather than merely that classes resolve.
         - [ ] Tell the two builds apart with `javap -v` on an installed class and read `mv=`. A jar timestamp will not do it: `installPlugin` is a `Sync` and skips a byte-identical copy.
 
         If this pull request failed to open with a library-name error instead, JetBrains has
         renamed something in the manifest and `.github/scripts/toolbox-bundled-versions.sh`
-        needs its display-name map updated. That failure is deliberate — a rename must never
+        needs its display-name map updated. That failure is deliberate: a rename must never
         read as "no change".
 
 sources:

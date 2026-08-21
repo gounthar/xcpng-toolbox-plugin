@@ -64,8 +64,8 @@ interface XoClient : AutoCloseable {
      * Nullable because the return is **measured, not specified**, and those disagree. XO's own
      * OpenAPI document (`@xen-orchestra/rest-api` 0.35.0) declares `201 Snapshot created` with no
      * response body at all; the running appliance answers 201 with `{"id": "<uuid>"}`, checked
-     * against the lab pool on 2026-08-19. Reading it is worth it — it saves a [listSnapshots]
-     * round trip — but an undocumented body is one an upgrade may withdraw without it being a
+     * against the lab pool on 2026-08-19. Reading it is worth it (it saves a [listSnapshots]
+     * round trip), but an undocumented body is one an upgrade may withdraw without it being a
      * breaking change, so callers must cope with null rather than assume the id is there.
      */
     suspend fun snapshot(vm: XoVm, nameLabel: String): String?

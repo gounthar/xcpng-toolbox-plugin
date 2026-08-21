@@ -80,14 +80,14 @@ internal class PoolSettingsPage(
 
     private val insecureField =
         // Label shared with the failure message that tells people to tick it. Change them
-        // together — which is only possible because it is one string. See the constant.
+        // together, which is only possible because it is one string. See the constant.
         CheckboxField(settings.allowUnauthorized, i18n.ptrl(SELF_SIGNED_CHECKBOX_LABEL))
 
     /**
      * The pool-wide login name. See [XoSettings.defaultSshUser] for why this is not per-VM only.
      *
-     * Optional here rather than required, because it is not needed to *list* a pool — only to
-     * connect to a VM — and forcing it would block the setup form on a value the user may not
+     * Optional here rather than required, because it is not needed to *list* a pool (only to
+     * connect to a VM), and forcing it would block the setup form on a value the user may not
      * know yet.
      */
     private val userField = TextField(
@@ -139,7 +139,7 @@ internal class PoolSettingsPage(
                  * Tests what is **typed**, and does not save it.
                  *
                  * Reading the stored settings instead would make the button useless exactly when
-                 * it is wanted — on a fresh install nothing is stored yet, and the whole point is
+                 * it is wanted: on a fresh install nothing is stored yet, and the whole point is
                  * to find out whether what was just typed works before committing to it.
                  *
                  * It closes the page like every other action, and that is forced rather than
@@ -166,7 +166,7 @@ internal class PoolSettingsPage(
      * The three values a test needs, taken from the form rather than from storage.
      *
      * [typedToken] is null when the field was left blank, which per the note on [tokenField]
-     * means "use the stored one" rather than "there is no token" — resolving that needs the
+     * means "use the stored one" rather than "there is no token". Resolving that needs the
      * keychain, so it is left to the caller that already has it.
      */
     internal data class Attempt(
@@ -183,7 +183,7 @@ internal class PoolSettingsPage(
          * that nothing was saved warns them about work they never did, and invites them to press
          * Save to keep values that are already kept. Measured on a real click, 2026-08-21.
          *
-         * A blank token field is what "unchanged" looks like — per the note on [tokenField] it
+         * A blank token field is what "unchanged" looks like: per the note on [tokenField] it
          * means "use the stored one". Somebody retyping the identical token counts as an edit
          * here, which is not distinguishable without comparing secrets and is harmless: the worst
          * case is the more cautious of the two sentences.
@@ -208,12 +208,12 @@ internal class PoolSettingsPage(
         settings.baseUrl = urlField.textState.value.trim()
         settings.allowUnauthorized = insecureField.checkedState.value
         settings.defaultSshUser = userField.textState.value
-        // Blank is "unchanged", per the note on tokenField — not "erase the token".
+        // Blank is "unchanged", per the note on tokenField, not "erase the token".
         tokenField.textState.value.trim().takeIf { it.isNotEmpty() }?.let { settings.setToken(it) }
         // A token seeded into settings.json before this page existed is moved to the keychain on
         // the first save, so the plaintext copy does not outlive the reason it was there.
         settings.promoteTokenToKeychain()
-        // The page instance outlives the save — the provider holds one and reuses it, so that a
+        // The page instance outlives the save: the provider holds one and reuses it, so that a
         // half-filled form survives Toolbox asking for it again. That reuse is right for every
         // other field, whose contents are exactly what was last written, and wrong for this one:
         // leaving the typed token in the field means reopening Settings paints the secret back
@@ -227,7 +227,7 @@ internal class PoolSettingsPage(
      * The first thing wrong with the form, or null when it is safe to store.
      *
      * The token counts as present if one is already stored, because the field is deliberately
-     * blank in that case — see the note on [tokenField]. Getting this backwards would make an
+     * blank in that case; see the note on [tokenField]. Getting this backwards would make an
      * existing installation unable to change its URL without retyping its token.
      */
     private fun firstProblem(): String? {

@@ -34,7 +34,7 @@ class XoSettings(
      * The settings-store fallback is a **development shortcut and a real weakness**: the settings
      * store is plaintext JSON on disk, so a token put there is readable by anything that can read
      * the file. It is kept only to migrate a token seeded by hand before the settings page
-     * existed — [promoteTokenToKeychain] moves it and blanks the plaintext copy, and [token]
+     * existed: [promoteTokenToKeychain] moves it and blanks the plaintext copy, and [token]
      * prefers the keychain, so a token written through the UI never lands in the file at all.
      */
     val token: String?

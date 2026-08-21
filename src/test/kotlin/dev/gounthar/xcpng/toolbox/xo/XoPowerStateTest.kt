@@ -14,7 +14,7 @@ import kotlin.test.assertNull
  *
  * **It therefore has to check the mapping, and an earlier version of this file did not.** It
  * asserted only that each state had *a* verb, that Running had none, and that the three verbs were
- * distinct — all of which stay true when `start` and `resume` are swapped. Verified by doing
+ * distinct, all of which stay true when `start` and `resume` are swapped. Verified by doing
  * exactly that swap and watching the suite pass. So the verb is now *invoked* against a client
  * that records which method it was, which is the only form of this test that can fail for the
  * right reason.

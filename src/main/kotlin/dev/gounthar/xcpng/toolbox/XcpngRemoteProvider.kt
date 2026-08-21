@@ -115,7 +115,7 @@ class XcpngRemoteProvider(
      * background is exactly the behaviour an operator would notice and dislike.
      *
      * The refresh still happens on every appearance, and it has to. **Subscribing delivers no
-     * initial dump** — measured 2026-08-21: a subscribed stream sits on `init` plus keepalives
+     * initial dump**. Measured 2026-08-21: a subscribed stream sits on `init` plus keepalives
      * until something changes. So the stream is a delta feed, and the collection has to be read
      * once over REST before the deltas mean anything.
      */
@@ -180,7 +180,7 @@ class XcpngRemoteProvider(
                 .changes(
                     onDisconnect = { cause ->
                         // Logged at info rather than error, and deliberately: a dropped stream is
-                        // an ordinary event on a connection meant to live for hours — a pool
+                        // an ordinary event on a connection meant to live for hours: a pool
                         // reboots, a laptop suspends, a VPN drops. It is not a plugin fault and
                         // the reconnect is automatic. What matters is that it is visible at all,
                         // because a silently dead stream and a genuinely quiet pool look identical
@@ -197,7 +197,7 @@ class XcpngRemoteProvider(
                 )
                 .collect { change ->
                     // Anything that is not a VM is ignored rather than filtered at subscription
-                    // time as well, because a frame does not name its subscription — the only
+                    // time as well, because a frame does not name its subscription: the only
                     // discriminator is `type` on the payload. With one subscription this is
                     // belt and braces; it stops being that the moment a second one is added.
                     if (change.collection != VM_COLLECTION) return@collect
@@ -220,7 +220,7 @@ class XcpngRemoteProvider(
      * Re-read the pool.
      *
      * [announce] publishes [LoadableState.Loading] first, which is right for a refresh the user
-     * triggered — opening the page, saving settings — and wrong for one an event triggered.
+     * triggered (opening the page, saving settings), and wrong for one an event triggered.
      * Before the event stream, every refresh was the first kind, so this did not need a
      * distinction and did not have one.
      *
@@ -265,8 +265,8 @@ class XcpngRemoteProvider(
             }.onFailure { e ->
                 logger.error(e, "XCP-ng: could not list VMs from ${settings.baseUrl}")
                 // Only a refresh the user asked for is allowed to empty the list. A quiet one
-                // failing means a re-read triggered by an event did not land — a blip, a pool
-                // restarting, a laptop waking — and blanking a correct list over that would turn
+                // failing means a re-read triggered by an event did not land (a blip, a pool
+                // restarting, a laptop waking), and blanking a correct list over that would turn
                 // every transient failure into a pool that appears to have lost all its VMs.
                 // Events make this reachable in a way it was not before: refreshes used to happen
                 // at most once per appearance, and now they happen whenever XO pushes.
@@ -312,7 +312,7 @@ class XcpngRemoteProvider(
      * One read against the appliance, reported in a popup.
      *
      * Built from the form's own values rather than from [settings], so it answers the question
-     * actually being asked — "does what I just typed work" — and writes nothing whatever the
+     * actually being asked ("does what I just typed work"), and writes nothing whatever the
      * answer is.
      *
      * [XoClient.ping] is the only blocking call this plugin has, and this is what the comment on
@@ -325,7 +325,7 @@ class XcpngRemoteProvider(
             // is the whole value of it rather than a detail.
             //
             // It started one branch lower, after the no-token check. That made it a record of what
-            // a test *compared*, and it could not answer the question actually asked of it — "I
+            // a test *compared*, and it could not answer the question actually asked of it: "I
             // pressed the button and nothing happened". A line that only proves the code ran once
             // it has decided to run cannot distinguish "never invoked" from "returned early", and
             // that is the same trap getEnvironmentIssueFlow() cost an evening to: establish that
@@ -334,7 +334,7 @@ class XcpngRemoteProvider(
             // So: no line means the button was not pressed. Every other outcome logs or pops.
             //
             // Kept after doing its job, because what it did was disprove a defect rather than find
-            // one — matchesStored was true and the complained-of message had come from a different
+            // one. matchesStored was true and the complained-of message had come from a different
             // click. A test is user-initiated and rare, so one INFO line costs nothing.
             //
             // Never logs the token, only whether one was typed.
@@ -388,7 +388,7 @@ class XcpngRemoteProvider(
                 logger.warn(failure, "XCP-ng: test connection to ${attempt.baseUrl} failed.")
                 // Which settings failed is as useful as why, and the two cases need opposite
                 // actions. Learned the hard way on 2026-08-21: a failing value was tested, then
-                // saved, and the pool stopped listing — the log went straight from "11 VMs" to
+                // saved, and the pool stopped listing: the log went straight from "11 VMs" to
                 // SSLHandshakeException one millisecond after "settings saved".
                 val whose = if (attempt.matchesStored(settings.baseUrl, settings.allowUnauthorized)) {
                     "These are the settings the pool is actually using, so it is not listing " +

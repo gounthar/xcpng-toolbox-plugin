@@ -6,7 +6,7 @@ development environment you can open an IDE against.
 **Unofficial, and not a Vates project.** This is a personal project that talks to XCP-ng and Xen
 Orchestra from the outside, using their public REST API. It is not built, endorsed or supported by
 Vates, and the name is used only to say what it connects to. It ships no Vates artwork: the icon is
-an original mark, deliberately not the XCP-ng logo. Bugs here are mine, not theirs — report them on
+an original mark, deliberately not the XCP-ng logo. Bugs here are mine, not theirs; report them on
 this repository rather than to XCP-ng.
 
 ## Status
@@ -29,12 +29,12 @@ that line.
 **Still unproven:** a connection that succeeds. Every connect attempted so far was aimed at
 something deliberately unreachable, to keep out of a modal that cannot be cancelled, so **no IDE
 backend has ever been started on a VM**. What is verified is that the plugin resolves an endpoint
-and Toolbox dials it — not that a development environment comes up at the other end.
+and Toolbox dials it, not that a development environment comes up at the other end.
 
 The reason an address override exists is worth stating, because it is the constraint the whole
 design bends around. Xen Orchestra reports a VM's *last known* address whether or not it is
 running: on the lab pool, four halted VMs served an address while only one of four running VMs
-did — and that one was the appliance itself. A guest with no XCP-ng agent reports nothing, ever,
+did, and that one was the appliance itself. A guest with no XCP-ng agent reports nothing, ever,
 and no amount of waiting or subscribing changes that. Separately, **nothing in Xen Orchestra
 records an SSH username at all**, so that can only ever be configuration. The plugin still refuses
 rather than inventing either value.
@@ -73,7 +73,7 @@ error naming no file and no task.
 The Kotlin version is bounded on **both** sides, which is why it is not a routine bump. The
 compiler must be new enough to read the binary metadata in the Toolbox API jars, and
 `kotlin-stdlib` is supplied by Toolbox at runtime, so compiling above what the installed app
-bundles is a `NoSuchMethodError` that CI cannot see — CI only compiles. The same applies to
+bundles is a `NoSuchMethodError` that CI cannot see: CI only compiles. The same applies to
 `kotlinx-coroutines` and `kotlinx-serialization`, which are `compileOnly` for the same reason.
 The working is in `gradle/libs.versions.toml`, next to the values.
 
@@ -88,7 +88,7 @@ keeps working everywhere else; the note it prints says when it has overridden on
 git config core.hooksPath .githooks
 ```
 
-Nothing tracked in this repository names the tools used to write it — not code, comments, commit
+Nothing tracked in this repository names the tools used to write it: not code, comments, commit
 messages, pull request titles or bodies. Four things enforce that, and only the last cannot be
 skipped:
 
@@ -106,11 +106,11 @@ squash, whose message no hook ever sees. Run the check yourself with:
 .github/scripts/check-tooling-references.sh [base head]
 ```
 
-Exit 0 clean, 1 a violation, 2 the check could not run — and read the 2, because a check that
+Exit 0 clean, 1 a violation, 2 the check could not run. Read the 2, because a check that
 could not run must not look like one that passed.
 
 ## Related
 
-- `xcpng-cloud-plugin` — the Jenkins cloud plugin for the same pools. Its
+- `xcpng-cloud-plugin`: the Jenkins cloud plugin for the same pools. Its
   `io.jenkins.plugins.xcpng.client` package is the JVM prior art for talking to a pool.
-- `clawk` — a sandbox tool with an XCP-ng backend in Go.
+- `clawk`: a sandbox tool with an XCP-ng backend in Go.
