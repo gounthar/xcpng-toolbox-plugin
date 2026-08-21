@@ -17,11 +17,14 @@ import com.jetbrains.toolbox.api.ui.actions.RunnableActionDescription
 import com.jetbrains.toolbox.api.ui.components.UiComponents
 import com.jetbrains.toolbox.api.ui.components.UiPage
 import dev.gounthar.xcpng.toolbox.xo.XoRestClient
+import dev.gounthar.xcpng.toolbox.xo.xoUnreachableMessage
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.net.URI
 
 /**
@@ -168,7 +171,106 @@ class XcpngRemoteProvider(
                 // the next visibility change without this.
                 refresh()
             },
+            testConnection = ::testConnection,
         )
+    }
+
+    /**
+     * One read against the appliance, reported in a popup.
+     *
+     * Built from the form's own values rather than from [settings], so it answers the question
+     * actually being asked — "does what I just typed work" — and writes nothing whatever the
+     * answer is.
+     *
+     * [XoClient.ping] is the only blocking call this plugin has, and this is what the comment on
+     * it always claimed it was for. `Dispatchers.IO` because it is blocking, and a fresh client
+     * per attempt because the values under test are not the stored ones.
+     */
+    private fun testConnection(attempt: PoolSettingsPage.Attempt) {
+        scope.launch {
+            // FIRST statement in the lambda, before the token is even resolved, and that position
+            // is the whole value of it rather than a detail.
+            //
+            // It started one branch lower, after the no-token check. That made it a record of what
+            // a test *compared*, and it could not answer the question actually asked of it — "I
+            // pressed the button and nothing happened". A line that only proves the code ran once
+            // it has decided to run cannot distinguish "never invoked" from "returned early", and
+            // that is the same trap getEnvironmentIssueFlow() cost an evening to: establish that
+            // your code runs at all before reasoning about what it produced.
+            //
+            // So: no line means the button was not pressed. Every other outcome logs or pops.
+            //
+            // Kept after doing its job, because what it did was disprove a defect rather than find
+            // one — matchesStored was true and the complained-of message had come from a different
+            // click. A test is user-initiated and rare, so one INFO line costs nothing.
+            //
+            // Never logs the token, only whether one was typed.
+            logger.info(
+                "XCP-ng: test attempt url=<${attempt.baseUrl}> stored=<${settings.baseUrl}> " +
+                    "typedToken=${attempt.typedToken != null} " +
+                    "insecure=${attempt.allowUnauthorized} storedInsecure=${settings.allowUnauthorized} " +
+                    "matchesStored=${attempt.matchesStored(settings.baseUrl, settings.allowUnauthorized)}",
+            )
+            // Blank field plus nothing stored is already refused by the form; this branch is for
+            // a token that vanished between the check and the click, and it beats a `!!`.
+            val token = attempt.typedToken ?: settings.token
+            if (token == null) {
+                logger.warn("XCP-ng: test attempt had no token to use.")
+                ui.showInfoPopup(
+                    i18n.ptrl("Not tested"),
+                    i18n.pnotr("There is no token to test with. Type one and try again."),
+                    i18n.ptrl("OK"),
+                )
+                return@launch
+            }
+            val outcome = withContext(Dispatchers.IO) {
+                runCatching {
+                    XoRestClient(
+                        baseUrl = attempt.baseUrl,
+                        token = token,
+                        allowUnauthorized = attempt.allowUnauthorized,
+                    ).use { it.ping() }
+                }
+            }
+            val failure = outcome.exceptionOrNull()
+            if (failure == null) {
+                logger.info("XCP-ng: test connection to ${attempt.baseUrl} succeeded.")
+                // The second sentence depends on whether anything was actually edited. See
+                // Attempt.matchesStored for why: "nothing was saved" is the point when it is an
+                // edit and a warning about imaginary work when it is not.
+                val tail = if (attempt.matchesStored(settings.baseUrl, settings.allowUnauthorized)) {
+                    "These are the settings already in use, and nothing needed changing."
+                } else {
+                    "Nothing was saved — open Settings again and press Save to keep these values."
+                }
+                ui.showInfoPopup(
+                    i18n.ptrl("Connected"),
+                    i18n.pnotr("${attempt.baseUrl} answered and accepted the token. $tail"),
+                    i18n.ptrl("OK"),
+                )
+            } else {
+                // Logged at warn rather than error: a failed test is this button working, not the
+                // plugin failing. The stack trace is kept because a branch of
+                // xoUnreachableMessage that never fires is one nobody would otherwise notice.
+                logger.warn(failure, "XCP-ng: test connection to ${attempt.baseUrl} failed.")
+                // Which settings failed is as useful as why, and the two cases need opposite
+                // actions. Learned the hard way on 2026-08-21: a failing value was tested, then
+                // saved, and the pool stopped listing — the log went straight from "11 VMs" to
+                // SSLHandshakeException one millisecond after "settings saved".
+                val whose = if (attempt.matchesStored(settings.baseUrl, settings.allowUnauthorized)) {
+                    "These are the settings the pool is actually using, so it is not listing " +
+                        "either — this is not just a bad edit."
+                } else {
+                    "Nothing was changed. The pool is still on its saved settings, and pressing " +
+                        "Save would replace them with the ones that just failed."
+                }
+                ui.showInfoPopup(
+                    i18n.ptrl("Could not connect"),
+                    i18n.pnotr("${xoUnreachableMessage(attempt.baseUrl, failure)} $whose"),
+                    i18n.ptrl("OK"),
+                )
+            }
+        }
     }
 
     /**
