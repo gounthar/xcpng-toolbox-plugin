@@ -211,12 +211,17 @@ class XcpngRemoteProvider(
             val failure = outcome.exceptionOrNull()
             if (failure == null) {
                 logger.info("XCP-ng: test connection to ${attempt.baseUrl} succeeded.")
+                // The second sentence depends on whether anything was actually edited. See
+                // Attempt.matchesStored for why: "nothing was saved" is the point when it is an
+                // edit and a warning about imaginary work when it is not.
+                val tail = if (attempt.matchesStored(settings.baseUrl, settings.allowUnauthorized)) {
+                    "These are the settings already in use, and nothing needed changing."
+                } else {
+                    "Nothing was saved — open Settings again and press Save to keep these values."
+                }
                 ui.showInfoPopup(
                     i18n.ptrl("Connected"),
-                    i18n.pnotr(
-                        "${attempt.baseUrl} answered and accepted the token. Nothing was saved " +
-                            "— open Settings again and press Save to keep these values.",
-                    ),
+                    i18n.pnotr("${attempt.baseUrl} answered and accepted the token. $tail"),
                     i18n.ptrl("OK"),
                 )
             } else {

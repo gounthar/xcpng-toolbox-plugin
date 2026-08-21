@@ -170,7 +170,26 @@ internal class PoolSettingsPage(
         val baseUrl: String,
         val typedToken: String?,
         val allowUnauthorized: Boolean,
-    )
+    ) {
+        /**
+         * Whether this is the configuration already in use, rather than an edit being tried out.
+         *
+         * It decides one sentence, and that sentence is wrong half the time without it. Telling
+         * somebody who just typed a new URL that nothing was saved is the whole point; telling
+         * somebody who opened Settings and pressed the button to check an already-working pool
+         * that nothing was saved warns them about work they never did, and invites them to press
+         * Save to keep values that are already kept. Measured on a real click, 2026-08-21.
+         *
+         * A blank token field is what "unchanged" looks like — per the note on [tokenField] it
+         * means "use the stored one". Somebody retyping the identical token counts as an edit
+         * here, which is not distinguishable without comparing secrets and is harmless: the worst
+         * case is the more cautious of the two sentences.
+         */
+        fun matchesStored(storedUrl: String?, storedAllowUnauthorized: Boolean): Boolean =
+            typedToken == null &&
+                baseUrl == storedUrl?.trim() &&
+                allowUnauthorized == storedAllowUnauthorized
+    }
 
     private fun attempt() = Attempt(
         baseUrl = urlField.textState.value.trim(),
