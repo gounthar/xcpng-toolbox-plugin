@@ -10,6 +10,7 @@ import com.jetbrains.toolbox.api.ui.components.TextType
 import com.jetbrains.toolbox.api.ui.components.UiField
 import com.jetbrains.toolbox.api.ui.components.UiPage
 import com.jetbrains.toolbox.api.ui.components.ValidationResult
+import dev.gounthar.xcpng.toolbox.xo.SELF_SIGNED_CHECKBOX_LABEL
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.net.URI
@@ -78,7 +79,9 @@ internal class PoolSettingsPage(
     ) { ValidationResult.Valid }
 
     private val insecureField =
-        CheckboxField(settings.allowUnauthorized, i18n.ptrl("Accept a self-signed certificate"))
+        // Label shared with the failure message that tells people to tick it. Change them
+        // together — which is only possible because it is one string. See the constant.
+        CheckboxField(settings.allowUnauthorized, i18n.ptrl(SELF_SIGNED_CHECKBOX_LABEL))
 
     /**
      * The pool-wide login name. See [XoSettings.defaultSshUser] for why this is not per-VM only.

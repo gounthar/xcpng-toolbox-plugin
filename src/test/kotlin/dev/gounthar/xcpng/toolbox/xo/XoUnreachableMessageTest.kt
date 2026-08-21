@@ -48,7 +48,11 @@ class XoUnreachableMessageTest {
     @Test
     fun `a certificate failure names the checkbox that fixes it`() {
         val message = xoUnreachableMessage(url, SSLHandshakeException("PKIX path building failed"))
-        assertTrue(message.contains("Accept a self-signed certificate"), message)
+        // The constant, not a copy of it. The invariant worth holding is "the message names the
+        // checkbox", not "the label is this exact wording" — asserting the literal would turn a
+        // legitimate rename into a test failure while doing nothing about the real risk, which is
+        // the two strings drifting apart.
+        assertTrue(message.contains(SELF_SIGNED_CHECKBOX_LABEL), message)
         assertTrue(message.contains("self-signed"), message)
     }
 

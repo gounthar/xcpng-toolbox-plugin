@@ -14,6 +14,20 @@ import javax.net.ssl.SSLException
 private val errorJson = Json { ignoreUnknownKeys = true }
 
 /**
+ * The self-signed-certificate checkbox, by its exact on-screen label.
+ *
+ * Shared rather than written twice, because [xoUnreachableMessage] tells the reader to tick a
+ * control and naming it wrongly sends them looking for something that is not there. That is not a
+ * hypothetical failure in this repo: `readableName` and the provider's constructor argument were
+ * two independent strings for the same idea, one was changed, and the other kept rendering the old
+ * value through a merged pull request — see PROVIDER_NAME.
+ *
+ * It lives here rather than beside the checkbox because the message that names it is here, and
+ * this package cannot import the UI one. `PoolSettingsPage` builds the checkbox from it.
+ */
+internal const val SELF_SIGNED_CHECKBOX_LABEL = "Accept a self-signed certificate"
+
+/**
  * What to tell somebody when Xen Orchestra refuses a read.
  *
  * This exists because the message it replaces named the two things that were fine. `ping()` used
@@ -119,7 +133,7 @@ internal fun xoUnreachableMessage(baseUrl: String, failure: Throwable): String =
     is SSLException ->
         "The appliance answered but its certificate was not trusted. XOA ships a self-signed " +
             "certificate, so this is the ordinary first connection rather than a sign of " +
-            "anything wrong — tick \"Accept a self-signed certificate\" on this page. " +
+            "anything wrong — tick \"$SELF_SIGNED_CHECKBOX_LABEL\" on this page. " +
             "(${failure.message ?: failure::class.java.simpleName})"
 
     is ConnectException ->
