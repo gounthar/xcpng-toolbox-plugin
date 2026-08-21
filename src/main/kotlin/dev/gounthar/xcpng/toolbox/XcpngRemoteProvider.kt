@@ -172,7 +172,8 @@ class XcpngRemoteProvider(
                 // drives the next pass.
                 for (unused in pendingChanges) {
                     delay(settleMillis)
-                    refresh()
+                    // Quiet: the list is already on screen and already correct. See reload.
+                    reload(announce = false)
                 }
             }
             stream
@@ -212,7 +213,25 @@ class XcpngRemoteProvider(
         watchJob = null
     }
 
-    override fun refresh() {
+    /** A refresh the user asked for, one way or another. Announces itself as loading. */
+    override fun refresh() = reload(announce = true)
+
+    /**
+     * Re-read the pool.
+     *
+     * [announce] publishes [LoadableState.Loading] first, which is right for a refresh the user
+     * triggered — opening the page, saving settings — and wrong for one an event triggered.
+     * Before the event stream, every refresh was the first kind, so this did not need a
+     * distinction and did not have one.
+     *
+     * It does now. A booting VM produces a burst of frames, each settling into a re-read, and
+     * announcing every one of those would flip a list that is already on screen and already
+     * correct back to loading roughly once a second. The user would see the pool flicker while
+     * watching a VM they just started, which reads as the plugin struggling rather than as it
+     * working. A background re-read has nothing to announce: the list stays, and the rows change
+     * when the answer arrives.
+     */
+    private fun reload(announce: Boolean) {
         if (!settings.isConfigured) {
             logger.info("XCP-ng: not configured, no baseUrl or token. Skipping refresh.")
             environmentList.value = LoadableState.Value(emptyList())
@@ -223,10 +242,12 @@ class XcpngRemoteProvider(
             logger.warn("XCP-ng: token read from plaintext settings, not the keychain.")
         }
         scope.launch {
-            // Loading is a raw-typed singleton in the Java-facing API, hence the cast.
-            @Suppress("UNCHECKED_CAST")
-            environmentList.value =
-                LoadableState.Loading as LoadableState<List<RemoteProviderEnvironment>>
+            if (announce) {
+                // Loading is a raw-typed singleton in the Java-facing API, hence the cast.
+                @Suppress("UNCHECKED_CAST")
+                environmentList.value =
+                    LoadableState.Loading as LoadableState<List<RemoteProviderEnvironment>>
+            }
             val result = runCatching { newClient().use { it.listVms() } }
             result.onSuccess { vms ->
                 logger.info("XCP-ng: ${vms.size} VMs from ${settings.baseUrl}")
@@ -243,7 +264,15 @@ class XcpngRemoteProvider(
                 environmentList.value = LoadableState.Value(environments)
             }.onFailure { e ->
                 logger.error(e, "XCP-ng: could not list VMs from ${settings.baseUrl}")
-                environmentList.value = LoadableState.Value(emptyList())
+                // Only a refresh the user asked for is allowed to empty the list. A quiet one
+                // failing means a re-read triggered by an event did not land — a blip, a pool
+                // restarting, a laptop waking — and blanking a correct list over that would turn
+                // every transient failure into a pool that appears to have lost all its VMs.
+                // Events make this reachable in a way it was not before: refreshes used to happen
+                // at most once per appearance, and now they happen whenever XO pushes.
+                if (announce) {
+                    environmentList.value = LoadableState.Value(emptyList())
+                }
             }
         }
     }
