@@ -17,11 +17,14 @@ import com.jetbrains.toolbox.api.ui.actions.RunnableActionDescription
 import com.jetbrains.toolbox.api.ui.components.UiComponents
 import com.jetbrains.toolbox.api.ui.components.UiPage
 import dev.gounthar.xcpng.toolbox.xo.XoRestClient
+import dev.gounthar.xcpng.toolbox.xo.xoUnreachableMessage
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.net.URI
 
 /**
@@ -168,7 +171,66 @@ class XcpngRemoteProvider(
                 // the next visibility change without this.
                 refresh()
             },
+            testConnection = ::testConnection,
         )
+    }
+
+    /**
+     * One read against the appliance, reported in a popup.
+     *
+     * Built from the form's own values rather than from [settings], so it answers the question
+     * actually being asked — "does what I just typed work" — and writes nothing whatever the
+     * answer is.
+     *
+     * [XoClient.ping] is the only blocking call this plugin has, and this is what the comment on
+     * it always claimed it was for. `Dispatchers.IO` because it is blocking, and a fresh client
+     * per attempt because the values under test are not the stored ones.
+     */
+    private fun testConnection(attempt: PoolSettingsPage.Attempt) {
+        scope.launch {
+            // Blank field plus nothing stored is already refused by the form; this branch is for
+            // a token that vanished between the check and the click, and it beats a `!!`.
+            val token = attempt.typedToken ?: settings.token
+            if (token == null) {
+                ui.showInfoPopup(
+                    i18n.ptrl("Not tested"),
+                    i18n.pnotr("There is no token to test with. Type one and try again."),
+                    i18n.ptrl("OK"),
+                )
+                return@launch
+            }
+            val outcome = withContext(Dispatchers.IO) {
+                runCatching {
+                    XoRestClient(
+                        baseUrl = attempt.baseUrl,
+                        token = token,
+                        allowUnauthorized = attempt.allowUnauthorized,
+                    ).use { it.ping() }
+                }
+            }
+            val failure = outcome.exceptionOrNull()
+            if (failure == null) {
+                logger.info("XCP-ng: test connection to ${attempt.baseUrl} succeeded.")
+                ui.showInfoPopup(
+                    i18n.ptrl("Connected"),
+                    i18n.pnotr(
+                        "${attempt.baseUrl} answered and accepted the token. Nothing was saved " +
+                            "— open Settings again and press Save to keep these values.",
+                    ),
+                    i18n.ptrl("OK"),
+                )
+            } else {
+                // Logged at warn rather than error: a failed test is this button working, not the
+                // plugin failing. The stack trace is kept because a branch of
+                // xoUnreachableMessage that never fires is one nobody would otherwise notice.
+                logger.warn(failure, "XCP-ng: test connection to ${attempt.baseUrl} failed.")
+                ui.showInfoPopup(
+                    i18n.ptrl("Could not connect"),
+                    i18n.pnotr(xoUnreachableMessage(attempt.baseUrl, failure)),
+                    i18n.ptrl("OK"),
+                )
+            }
+        }
     }
 
     /**

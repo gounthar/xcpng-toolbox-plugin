@@ -26,8 +26,12 @@ import java.net.URI
  * *instead of* the environment list while the plugin is unconfigured, so a fresh install lands on
  * a form rather than on an empty list with an instruction in the corner. Once configured it is
  * reachable from the provider's own action menu, for editing.
+ *
+ * `internal` because nothing outside this plugin constructs it, and because [Attempt] is a
+ * constructor parameter type: a public constructor may not expose an internal one, and widening
+ * [Attempt] to satisfy that would publish a type carrying a token for no reason at all.
  */
-class PoolSettingsPage(
+internal class PoolSettingsPage(
     private val settings: XoSettings,
     private val i18n: LocalizableStringFactory,
     /**
@@ -36,6 +40,15 @@ class PoolSettingsPage(
      */
     private val showProblem: (String) -> Unit,
     private val onSaved: () -> Unit,
+    /**
+     * Runs one read against the appliance and reports what happened.
+     *
+     * Here for the same reason as [showProblem]: the call is blocking network I/O and its answer
+     * arrives in a popup, so it needs a scope and a
+     * [com.jetbrains.toolbox.api.ui.ToolboxUi], and this class holds neither. What this class does
+     * own is the decision of *what* to test, which is [Attempt].
+     */
+    private val testConnection: (Attempt) -> Unit,
 ) : UiPage(MutableStateFlow(i18n.ptrl("XCP-ng pool"))) {
 
     private val urlField = TextField(
@@ -116,11 +129,61 @@ class PoolSettingsPage(
                     save()
                 }
             },
+            object : RunnableActionDescription {
+                override val label: LocalizableString = i18n.ptrl("Test connection")
+
+                /**
+                 * Tests what is **typed**, and does not save it.
+                 *
+                 * Reading the stored settings instead would make the button useless exactly when
+                 * it is wanted — on a fresh install nothing is stored yet, and the whole point is
+                 * to find out whether what was just typed works before committing to it.
+                 *
+                 * It closes the page like every other action, and that is forced rather than
+                 * chosen: a popup raised while a `UiPage` is open is queued until that page
+                 * closes, so a button that stayed open could never report its own result. See the
+                 * note on Save. Nothing typed is lost, because
+                 * [XcpngRemoteProvider] holds this page instance and reopening Settings shows the
+                 * same fields; the success message says the settings were not saved, because a
+                 * page that closes on a green result otherwise reads as one that saved.
+                 */
+                override fun run() {
+                    val problem = firstProblem()
+                    if (problem != null) {
+                        showProblem(problem)
+                        return
+                    }
+                    testConnection(attempt())
+                }
+            },
         ),
     )
 
+    /**
+     * The three values a test needs, taken from the form rather than from storage.
+     *
+     * [typedToken] is null when the field was left blank, which per the note on [tokenField]
+     * means "use the stored one" rather than "there is no token" — resolving that needs the
+     * keychain, so it is left to the caller that already has it.
+     */
+    internal data class Attempt(
+        val baseUrl: String,
+        val typedToken: String?,
+        val allowUnauthorized: Boolean,
+    )
+
+    private fun attempt() = Attempt(
+        baseUrl = urlField.textState.value.trim(),
+        typedToken = tokenField.textState.value.trim().takeIf { it.isNotEmpty() },
+        allowUnauthorized = insecureField.checkedState.value,
+    )
+
     private fun save() {
-        settings.baseUrl = urlField.textState.value
+        // Trimmed, because urlProblem validates the trimmed form and storing the untrimmed one
+        // would let a trailing space pass the form and then land in the middle of a request URL,
+        // where it fails as something that looks nothing like a stray keystroke. It also keeps
+        // what "Test connection" tried and what Save wrote as the same string.
+        settings.baseUrl = urlField.textState.value.trim()
         settings.allowUnauthorized = insecureField.checkedState.value
         settings.defaultSshUser = userField.textState.value
         // Blank is "unchanged", per the note on tokenField — not "erase the token".

@@ -3,6 +3,13 @@ package dev.gounthar.xcpng.toolbox.xo
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
+import java.io.IOException
+import java.net.ConnectException
+import java.net.MalformedURLException
+import java.net.NoRouteToHostException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
+import javax.net.ssl.SSLException
 
 private val errorJson = Json { ignoreUnknownKeys = true }
 
@@ -81,4 +88,61 @@ internal fun xoFailureMessage(what: String, status: Int, body: String): String {
 private fun planNote(current: String?, min: String?): String = when {
     current != null && min != null -> " (it reports plan $current, and that route needs plan $min)"
     else -> ""
+}
+
+/**
+ * Why the appliance could not be reached at all, for a failure that never got a status code.
+ *
+ * [xoFailureMessage] is the other half of this and starts where this one stops: it explains a
+ * refusal Xen Orchestra *sent*, and needs a response to read. Everything below happens before
+ * there is one — DNS, TCP, TLS — and arrives as an exception out of `HttpURLConnection` whose own
+ * message is usually a bare hostname or `Connection refused`, which names the symptom and no
+ * cause. That is fine in a log and useless on a settings form, where the person reading it has
+ * every input that could be at fault on screen in front of them.
+ *
+ * **Keyed on the exception type, never on its message.** Same reasoning as the `featureCode`
+ * discriminator in [xoFailureMessage]: a JDK message is not API and can be reworded between
+ * releases, while `UnknownHostException` cannot stop meaning what it means. The `when` runs
+ * specific-to-general because all of these except [SSLException] descend from [IOException].
+ *
+ * The certificate branch is the one that earns this function. XOA ships a self-signed certificate,
+ * so a first connection failing on TLS is the *expected* first experience rather than an edge
+ * case, and the fix is a checkbox on the same form. Saying so beats `PKIX path building failed`.
+ */
+internal fun xoUnreachableMessage(baseUrl: String, failure: Throwable): String = when (failure) {
+    is UnknownHostException ->
+        "No host by that name. Nothing answered a DNS lookup for the address in $baseUrl, so " +
+            "check it for a typo before looking at anything else."
+
+    // Before SSLException's siblings, and before IOException: SSLHandshakeException is what a
+    // self-signed certificate actually throws, and it is an SSLException, which is an IOException.
+    is SSLException ->
+        "The appliance answered but its certificate was not trusted. XOA ships a self-signed " +
+            "certificate, so this is the ordinary first connection rather than a sign of " +
+            "anything wrong — tick \"Accept a self-signed certificate\" on this page. " +
+            "(${failure.message ?: failure::class.java.simpleName})"
+
+    is ConnectException ->
+        "Nothing is listening at $baseUrl. The name resolved, so the address is reachable and " +
+            "the port is not open — check the scheme and the port rather than the hostname."
+
+    is NoRouteToHostException ->
+        "No route to $baseUrl. The address resolved and nothing refused the connection either, " +
+            "which usually means a firewall or a network this machine is not on."
+
+    is SocketTimeoutException ->
+        "$baseUrl did not answer in time. Nothing refused the connection, so something is " +
+            "dropping it silently rather than saying no — a firewall, or the wrong host entirely."
+
+    is MalformedURLException ->
+        "$baseUrl is not a URL this plugin can build a request from. It should be the " +
+            "appliance's own address and nothing more, such as https://xoa.example.com."
+
+    is IOException ->
+        "Could not reach $baseUrl. ${failure.message ?: failure::class.java.simpleName}"
+
+    // Not a transport failure. `ping()` throws IllegalStateException carrying whatever
+    // xoFailureMessage produced, and that text is already the best available answer, so it is
+    // passed through rather than wrapped in a second sentence about connectivity.
+    else -> failure.message?.takeIf { it.isNotBlank() } ?: failure::class.java.simpleName
 }
