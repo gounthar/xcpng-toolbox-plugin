@@ -3,10 +3,11 @@ package dev.gounthar.xcpng.toolbox.xo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import java.net.HttpURLConnection
 import java.net.URL
 import javax.net.ssl.HttpsURLConnection
@@ -207,11 +208,24 @@ class XoRestClient(
     private fun quote(s: String) = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 }
 
+/**
+ * One string field, or null for anything that is not usable as one.
+ *
+ * The cast is `as?` rather than `jsonPrimitive` on purpose, and it is the whole point of this
+ * function. `jsonPrimitive` **throws** on a `JsonObject` or a `JsonArray` rather than returning
+ * null, so reading a field XO decided to nest turns a missing value into an exception — and the
+ * caller that hurts most is [xoFailureMessage], whose entire job is to explain a failure and
+ * which would instead throw while doing it. That is not hypothetical here: `xenTools` is declared
+ * a string in XO's own OpenAPI document and arrives as an object.
+ *
+ * `JsonNull` is excluded after the cast, not before, because `JsonNull` *is* a `JsonPrimitive` in
+ * kotlinx and its `content` is the four characters `null`.
+ */
 internal fun JsonObject.str(key: String): String? =
-    this[key]?.takeIf { it !is kotlinx.serialization.json.JsonNull }?.jsonPrimitive?.contentOrNull
-
-private val kotlinx.serialization.json.JsonPrimitive.contentOrNull: String?
-    get() = runCatching { content }.getOrNull()?.takeIf { it.isNotBlank() }
+    (this[key] as? JsonPrimitive)
+        ?.takeIf { it !is JsonNull }
+        ?.content
+        ?.takeIf { it.isNotBlank() }
 
 /**
  * One VM object from XO, as the plugin's own model.

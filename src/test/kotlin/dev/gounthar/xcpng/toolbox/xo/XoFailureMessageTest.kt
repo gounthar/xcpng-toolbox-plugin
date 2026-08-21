@@ -142,4 +142,43 @@ class XoFailureMessageTest {
         assertTrue(message.contains("502"), message)
         assertTrue(message.contains("No detail"), message)
     }
+
+    /**
+     * The one failure mode this function must not have. Every branch reads its fields through
+     * `JsonObject.str`, and `str` used to reach them via kotlinx's `jsonPrimitive`, which throws
+     * an `IllegalArgumentException` on an object or an array instead of returning null. A body
+     * nesting one of those keys therefore made the explaining code throw while explaining, and
+     * what the reader got was `Element class ... is not a JsonPrimitive` — a message strictly
+     * worse than the "Check the URL and token" this file exists to delete.
+     *
+     * Not a hypothetical shape. `xenTools` is declared a string in XO's own OpenAPI document and
+     * arrives as `{"major": 7, "minor": 30, "version": 7.3}`, so XO nesting a field the document
+     * calls a string is measured behaviour rather than a worry.
+     */
+    @Test
+    fun `a nested error object does not make the diagnosis throw`() {
+        val message = xoFailureMessage("/vms", 403, """{ "error": { "code": 7 } }""")
+        assertTrue(message.contains("403"), message)
+        assertTrue(message.contains("privileges"), message)
+    }
+
+    @Test
+    fun `a nested featureCode does not make the diagnosis throw`() {
+        val body = """{ "error": "feature Unauthorized", "data": { "featureCode": { "x": 1 } } }"""
+        val message = xoFailureMessage("/vms", 403, body)
+        assertTrue(message.contains("403"), message)
+        assertFalse(message.contains("licence"), message)
+    }
+
+    /**
+     * An array where a string was expected, which is the other shape `jsonPrimitive` throws on.
+     * It falls all the way to the raw-body branch, and the important part is that it arrives
+     * there rather than propagating an exception out of the `require` lambda that called it.
+     */
+    @Test
+    fun `an array in the error field falls back to the raw body`() {
+        val message = xoFailureMessage("/vms", 500, """{ "error": ["a", "b"] }""")
+        assertTrue(message.contains("500"), message)
+        assertTrue(message.contains("a"), message)
+    }
 }
