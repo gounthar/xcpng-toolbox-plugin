@@ -16,10 +16,15 @@ import com.jetbrains.toolbox.api.ui.actions.ActionDescription
 import com.jetbrains.toolbox.api.ui.actions.RunnableActionDescription
 import com.jetbrains.toolbox.api.ui.components.UiComponents
 import com.jetbrains.toolbox.api.ui.components.UiPage
+import dev.gounthar.xcpng.toolbox.xo.VM_COLLECTION
+import dev.gounthar.xcpng.toolbox.xo.XoEventStream
 import dev.gounthar.xcpng.toolbox.xo.XoRestClient
 import dev.gounthar.xcpng.toolbox.xo.xoUnreachableMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -105,16 +110,128 @@ class XcpngRemoteProvider(
         }
 
     /**
-     * Toolbox tells us when the user is actually looking, and the refresh hangs off that on
-     * purpose: polling every configured pool in the background is exactly the behaviour an
-     * operator would notice and dislike.
+     * Toolbox tells us when the user is actually looking, and both the refresh and the event
+     * stream hang off that on purpose: holding a connection open to every configured pool in the
+     * background is exactly the behaviour an operator would notice and dislike.
+     *
+     * The refresh still happens on every appearance, and it has to. **Subscribing delivers no
+     * initial dump** — measured 2026-08-21: a subscribed stream sits on `init` plus keepalives
+     * until something changes. So the stream is a delta feed, and the collection has to be read
+     * once over REST before the deltas mean anything.
      */
     override fun setVisible(visibilityState: ProviderVisibilityState) {
-        if (!visibilityState.providerVisible) return
+        if (!visibilityState.providerVisible) {
+            stopWatching()
+            return
+        }
         refresh()
+        startWatching()
     }
 
-    override fun refresh() {
+    /**
+     * The live subscription, and the coalescing consumer behind it. Null when not watching.
+     *
+     * Two jobs rather than one because they fail differently: the stream reconnects on its own
+     * forever, while the consumer only ever ends when cancelled. Cancelling the parent handle
+     * takes both down, which is what [stopWatching] does.
+     */
+    private var watchJob: Job? = null
+
+    /**
+     * Changes waiting to be turned into a refresh, conflated to exactly one.
+     *
+     * Conflated because **XO is chatty out of proportion to what changed**: measured 2026-08-21, a
+     * clean shutdown followed by a start produced *ten* `update` frames for two transitions, and
+     * taking a snapshot pushes further updates onto the parent VM as its `snapshots` array and
+     * `current_operations` move. Refreshing per frame would be worse than the polling this
+     * replaces. The conflated channel plus the settle delay below collapses a burst into one read.
+     */
+    private val pendingChanges = Channel<Unit>(Channel.CONFLATED)
+
+    /**
+     * How long to wait for a burst to finish before re-reading the pool.
+     *
+     * A second is comfortably longer than the gaps inside a burst and short enough that a user
+     * watching a VM boot sees the row move while they are still looking at it. It also bounds the
+     * cost: at most one pool read per second however hard the appliance pushes.
+     */
+    private val settleMillis = 1_000L
+
+    private fun startWatching() {
+        if (watchJob?.isActive == true) return
+        if (!settings.isConfigured) return
+        val stream = XoEventStream(
+            baseUrl = settings.baseUrl!!,
+            token = settings.token ?: return,
+            allowUnauthorized = settings.allowUnauthorized,
+        )
+        watchJob = scope.launch {
+            launch {
+                // A trailing refresh per burst. The channel is conflated, so everything that
+                // arrives during the settle window collapses into the single pending item that
+                // drives the next pass.
+                for (unused in pendingChanges) {
+                    delay(settleMillis)
+                    // Quiet: the list is already on screen and already correct. See reload.
+                    reload(announce = false)
+                }
+            }
+            stream
+                .changes(
+                    onDisconnect = { cause ->
+                        // Logged at info rather than error, and deliberately: a dropped stream is
+                        // an ordinary event on a connection meant to live for hours — a pool
+                        // reboots, a laptop suspends, a VPN drops. It is not a plugin fault and
+                        // the reconnect is automatic. What matters is that it is visible at all,
+                        // because a silently dead stream and a genuinely quiet pool look identical
+                        // from the environment list.
+                        if (cause == null) {
+                            logger.info("XCP-ng: event stream closed by ${settings.baseUrl}, reconnecting.")
+                        } else {
+                            logger.info(
+                                "XCP-ng: event stream to ${settings.baseUrl} dropped " +
+                                    "(${cause::class.simpleName}: ${cause.message}), reconnecting.",
+                            )
+                        }
+                    },
+                )
+                .collect { change ->
+                    // Anything that is not a VM is ignored rather than filtered at subscription
+                    // time as well, because a frame does not name its subscription — the only
+                    // discriminator is `type` on the payload. With one subscription this is
+                    // belt and braces; it stops being that the moment a second one is added.
+                    if (change.collection != VM_COLLECTION) return@collect
+                    // Deliberately not logged per frame. Ten frames for one shutdown would bury
+                    // the lines that matter, and the refresh this triggers logs the VM count.
+                    pendingChanges.trySend(Unit)
+                }
+        }
+    }
+
+    private fun stopWatching() {
+        watchJob?.cancel()
+        watchJob = null
+    }
+
+    /** A refresh the user asked for, one way or another. Announces itself as loading. */
+    override fun refresh() = reload(announce = true)
+
+    /**
+     * Re-read the pool.
+     *
+     * [announce] publishes [LoadableState.Loading] first, which is right for a refresh the user
+     * triggered — opening the page, saving settings — and wrong for one an event triggered.
+     * Before the event stream, every refresh was the first kind, so this did not need a
+     * distinction and did not have one.
+     *
+     * It does now. A booting VM produces a burst of frames, each settling into a re-read, and
+     * announcing every one of those would flip a list that is already on screen and already
+     * correct back to loading roughly once a second. The user would see the pool flicker while
+     * watching a VM they just started, which reads as the plugin struggling rather than as it
+     * working. A background re-read has nothing to announce: the list stays, and the rows change
+     * when the answer arrives.
+     */
+    private fun reload(announce: Boolean) {
         if (!settings.isConfigured) {
             logger.info("XCP-ng: not configured, no baseUrl or token. Skipping refresh.")
             environmentList.value = LoadableState.Value(emptyList())
@@ -125,10 +242,12 @@ class XcpngRemoteProvider(
             logger.warn("XCP-ng: token read from plaintext settings, not the keychain.")
         }
         scope.launch {
-            // Loading is a raw-typed singleton in the Java-facing API, hence the cast.
-            @Suppress("UNCHECKED_CAST")
-            environmentList.value =
-                LoadableState.Loading as LoadableState<List<RemoteProviderEnvironment>>
+            if (announce) {
+                // Loading is a raw-typed singleton in the Java-facing API, hence the cast.
+                @Suppress("UNCHECKED_CAST")
+                environmentList.value =
+                    LoadableState.Loading as LoadableState<List<RemoteProviderEnvironment>>
+            }
             val result = runCatching { newClient().use { it.listVms() } }
             result.onSuccess { vms ->
                 logger.info("XCP-ng: ${vms.size} VMs from ${settings.baseUrl}")
@@ -145,7 +264,15 @@ class XcpngRemoteProvider(
                 environmentList.value = LoadableState.Value(environments)
             }.onFailure { e ->
                 logger.error(e, "XCP-ng: could not list VMs from ${settings.baseUrl}")
-                environmentList.value = LoadableState.Value(emptyList())
+                // Only a refresh the user asked for is allowed to empty the list. A quiet one
+                // failing means a re-read triggered by an event did not land — a blip, a pool
+                // restarting, a laptop waking — and blanking a correct list over that would turn
+                // every transient failure into a pool that appears to have lost all its VMs.
+                // Events make this reachable in a way it was not before: refreshes used to happen
+                // at most once per appearance, and now they happen whenever XO pushes.
+                if (announce) {
+                    environmentList.value = LoadableState.Value(emptyList())
+                }
             }
         }
     }
@@ -170,6 +297,12 @@ class XcpngRemoteProvider(
                 // The environment list is empty while unconfigured, so nothing would appear until
                 // the next visibility change without this.
                 refresh()
+                // The stream holds the URL, token and TLS policy it was constructed with, so a
+                // save has to replace it rather than leave it talking to the old appliance. Not
+                // restarting here is the failure where the pool listing recovers on Save and the
+                // pushes silently keep going to the previous host.
+                stopWatching()
+                startWatching()
             },
             testConnection = ::testConnection,
         )
@@ -300,6 +433,10 @@ class XcpngRemoteProvider(
     }
 
     override fun close() {
-        // The client is created per refresh and closed by `use`, so there is nothing held here.
+        // The REST client is created per refresh and closed by `use`, so there is nothing of that
+        // kind held here. The event stream is the exception: it is a socket held open across
+        // calls, and it is exactly what the issue warned would leak if it outlived the provider.
+        stopWatching()
+        pendingChanges.close()
     }
 }
