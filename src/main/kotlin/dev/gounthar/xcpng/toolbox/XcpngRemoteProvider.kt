@@ -199,6 +199,22 @@ class XcpngRemoteProvider(
                 )
                 return@launch
             }
+            // One line, before any behaviour, naming every value the decision below reads.
+            //
+            // Kept rather than removed once it had done its job. It was added because three
+            // hypotheses about a supposedly-wrong message each contradicted part of the evidence,
+            // and it settled the question in one click — by showing there was no bug: matchesStored
+            // was true, and the message being complained about had come from a different test where
+            // it was correct. That is the shape of thing this line will be needed for again, and a
+            // test is user-initiated and rare, so one INFO line costs nothing.
+            //
+            // Never logs the token, only whether one was typed.
+            logger.info(
+                "XCP-ng: test attempt url=<${attempt.baseUrl}> stored=<${settings.baseUrl}> " +
+                    "typedToken=${attempt.typedToken != null} " +
+                    "insecure=${attempt.allowUnauthorized} storedInsecure=${settings.allowUnauthorized} " +
+                    "matchesStored=${attempt.matchesStored(settings.baseUrl, settings.allowUnauthorized)}",
+            )
             val outcome = withContext(Dispatchers.IO) {
                 runCatching {
                     XoRestClient(
@@ -229,9 +245,20 @@ class XcpngRemoteProvider(
                 // plugin failing. The stack trace is kept because a branch of
                 // xoUnreachableMessage that never fires is one nobody would otherwise notice.
                 logger.warn(failure, "XCP-ng: test connection to ${attempt.baseUrl} failed.")
+                // Which settings failed is as useful as why, and the two cases need opposite
+                // actions. Learned the hard way on 2026-08-21: a failing value was tested, then
+                // saved, and the pool stopped listing — the log went straight from "11 VMs" to
+                // SSLHandshakeException one millisecond after "settings saved".
+                val whose = if (attempt.matchesStored(settings.baseUrl, settings.allowUnauthorized)) {
+                    "These are the settings the pool is actually using, so it is not listing " +
+                        "either — this is not just a bad edit."
+                } else {
+                    "Nothing was changed. The pool is still on its saved settings, and pressing " +
+                        "Save would replace them with the ones that just failed."
+                }
                 ui.showInfoPopup(
                     i18n.ptrl("Could not connect"),
-                    i18n.pnotr(xoUnreachableMessage(attempt.baseUrl, failure)),
+                    i18n.pnotr("${xoUnreachableMessage(attempt.baseUrl, failure)} $whose"),
                     i18n.ptrl("OK"),
                 )
             }
