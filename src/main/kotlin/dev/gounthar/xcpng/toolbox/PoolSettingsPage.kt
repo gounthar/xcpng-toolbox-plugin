@@ -75,7 +75,7 @@ internal class PoolSettingsPage(
         TextType.Password,
         false,
         null,
-        i18n.ptrl(if (settings.token != null) "Stored — type to replace" else "Required"),
+        i18n.ptrl(if (settings.token != null) "Stored (type to replace)" else "Required"),
     ) { ValidationResult.Valid }
 
     private val insecureField =
@@ -219,7 +219,7 @@ internal class PoolSettingsPage(
         // leaving the typed token in the field means reopening Settings paints the secret back
         // onto the screen, and the placeholder would still be inviting a value that now exists.
         tokenField.textState.value = ""
-        tokenField.placeholderState.value = i18n.ptrl("Stored — type to replace")
+        tokenField.placeholderState.value = i18n.ptrl("Stored (type to replace)")
         onSaved()
     }
 

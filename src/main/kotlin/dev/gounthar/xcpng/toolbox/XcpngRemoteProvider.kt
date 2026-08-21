@@ -374,7 +374,7 @@ class XcpngRemoteProvider(
                 val tail = if (attempt.matchesStored(settings.baseUrl, settings.allowUnauthorized)) {
                     "These are the settings already in use, and nothing needed changing."
                 } else {
-                    "Nothing was saved — open Settings again and press Save to keep these values."
+                    "Nothing was saved. Open Settings again and press Save to keep these values."
                 }
                 ui.showInfoPopup(
                     i18n.ptrl("Connected"),
@@ -392,7 +392,7 @@ class XcpngRemoteProvider(
                 // SSLHandshakeException one millisecond after "settings saved".
                 val whose = if (attempt.matchesStored(settings.baseUrl, settings.allowUnauthorized)) {
                     "These are the settings the pool is actually using, so it is not listing " +
-                        "either — this is not just a bad edit."
+                        "either. This is not just a bad edit."
                 } else {
                     "Nothing was changed. The pool is still on its saved settings, and pressing " +
                         "Save would replace them with the ones that just failed."

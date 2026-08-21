@@ -32,7 +32,7 @@ class ConnectionSettingsPage(
     private val settings: XoSettings,
     private val i18n: LocalizableStringFactory,
     private val onSaved: () -> Unit,
-) : UiPage(MutableStateFlow(i18n.pnotr("Connection — \"${vm.nameLabel}\""))) {
+) : UiPage(MutableStateFlow(i18n.pnotr("Connection: \"${vm.nameLabel}\""))) {
 
     private val userField = TextField(
         i18n.ptrl("SSH username"),

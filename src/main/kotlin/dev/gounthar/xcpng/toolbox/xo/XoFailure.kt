@@ -133,12 +133,12 @@ internal fun xoUnreachableMessage(baseUrl: String, failure: Throwable): String =
     is SSLException ->
         "The appliance answered but its certificate was not trusted. XOA ships a self-signed " +
             "certificate, so this is the ordinary first connection rather than a sign of " +
-            "anything wrong — tick \"$SELF_SIGNED_CHECKBOX_LABEL\" on this page. " +
+            "anything wrong. Tick \"$SELF_SIGNED_CHECKBOX_LABEL\" on this page. " +
             "(${failure.message ?: failure::class.java.simpleName})"
 
     is ConnectException ->
         "Nothing is listening at $baseUrl. The name resolved, so the address is reachable and " +
-            "the port is not open — check the scheme and the port rather than the hostname."
+            "the port is not open. Check the scheme and the port rather than the hostname."
 
     is NoRouteToHostException ->
         "No route to $baseUrl. The address resolved and nothing refused the connection either, " +
@@ -146,7 +146,7 @@ internal fun xoUnreachableMessage(baseUrl: String, failure: Throwable): String =
 
     is SocketTimeoutException ->
         "$baseUrl did not answer in time. Nothing refused the connection, so something is " +
-            "dropping it silently rather than saying no — a firewall, or the wrong host entirely."
+            "dropping it silently rather than saying no: a firewall, or the wrong host entirely."
 
     is MalformedURLException ->
         "$baseUrl is not a URL this plugin can build a request from. It should be the " +
