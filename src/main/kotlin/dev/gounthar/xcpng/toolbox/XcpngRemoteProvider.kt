@@ -188,25 +188,21 @@ class XcpngRemoteProvider(
      */
     private fun testConnection(attempt: PoolSettingsPage.Attempt) {
         scope.launch {
-            // Blank field plus nothing stored is already refused by the form; this branch is for
-            // a token that vanished between the check and the click, and it beats a `!!`.
-            val token = attempt.typedToken ?: settings.token
-            if (token == null) {
-                ui.showInfoPopup(
-                    i18n.ptrl("Not tested"),
-                    i18n.pnotr("There is no token to test with. Type one and try again."),
-                    i18n.ptrl("OK"),
-                )
-                return@launch
-            }
-            // One line, before any behaviour, naming every value the decision below reads.
+            // FIRST statement in the lambda, before the token is even resolved, and that position
+            // is the whole value of it rather than a detail.
             //
-            // Kept rather than removed once it had done its job. It was added because three
-            // hypotheses about a supposedly-wrong message each contradicted part of the evidence,
-            // and it settled the question in one click — by showing there was no bug: matchesStored
-            // was true, and the message being complained about had come from a different test where
-            // it was correct. That is the shape of thing this line will be needed for again, and a
-            // test is user-initiated and rare, so one INFO line costs nothing.
+            // It started one branch lower, after the no-token check. That made it a record of what
+            // a test *compared*, and it could not answer the question actually asked of it — "I
+            // pressed the button and nothing happened". A line that only proves the code ran once
+            // it has decided to run cannot distinguish "never invoked" from "returned early", and
+            // that is the same trap getEnvironmentIssueFlow() cost an evening to: establish that
+            // your code runs at all before reasoning about what it produced.
+            //
+            // So: no line means the button was not pressed. Every other outcome logs or pops.
+            //
+            // Kept after doing its job, because what it did was disprove a defect rather than find
+            // one — matchesStored was true and the complained-of message had come from a different
+            // click. A test is user-initiated and rare, so one INFO line costs nothing.
             //
             // Never logs the token, only whether one was typed.
             logger.info(
@@ -215,6 +211,18 @@ class XcpngRemoteProvider(
                     "insecure=${attempt.allowUnauthorized} storedInsecure=${settings.allowUnauthorized} " +
                     "matchesStored=${attempt.matchesStored(settings.baseUrl, settings.allowUnauthorized)}",
             )
+            // Blank field plus nothing stored is already refused by the form; this branch is for
+            // a token that vanished between the check and the click, and it beats a `!!`.
+            val token = attempt.typedToken ?: settings.token
+            if (token == null) {
+                logger.warn("XCP-ng: test attempt had no token to use.")
+                ui.showInfoPopup(
+                    i18n.ptrl("Not tested"),
+                    i18n.pnotr("There is no token to test with. Type one and try again."),
+                    i18n.ptrl("OK"),
+                )
+                return@launch
+            }
             val outcome = withContext(Dispatchers.IO) {
                 runCatching {
                     XoRestClient(
