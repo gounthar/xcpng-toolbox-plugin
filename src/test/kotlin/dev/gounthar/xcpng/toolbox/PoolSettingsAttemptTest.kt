@@ -8,7 +8,7 @@ import kotlin.test.assertTrue
  * `Attempt.matchesStored`, which decides one sentence in the Test connection popup.
  *
  * It exists because of a real click on 2026-08-21: an already-configured pool tested green and
- * was told *"Nothing was saved — open Settings again and press Save to keep these values"*, which
+ * was told *"Nothing was saved. Open Settings again and press Save to keep these values"*, which
  * is true, useless, and invites the reader to save values that are already saved. The same
  * sentence is exactly right for somebody who just typed a new URL. One sentence cannot be both,
  * so the decision is made here and tested here.
@@ -51,7 +51,7 @@ class PoolSettingsAttemptTest {
 
     /**
      * The first save of a fresh install has nothing stored to match, so a green test there must
-     * take the "nothing was saved" branch — which is the case that sentence was written for.
+     * take the "nothing was saved" branch, which is the case that sentence was written for.
      */
     @Test
     fun `nothing stored yet is always an edit`() {

@@ -40,7 +40,7 @@ toolbox-plugin-api = "1.10.80952"
 # previous install was mv=[2,3,0], so the two builds differ and the test is not a no-op.
 #
 # That one line is a stronger check than it looks: listing VMs exercises all three
-# host-provided libraries at once — stdlib to load the class, coroutines to run the
+# host-provided libraries at once: stdlib to load the class, coroutines to run the
 # suspend call, serialization to parse the REST response. It tests the ceiling, not just
 # class loading. It is one build of Toolbox on one machine, so it is a measurement of
 # THIS pairing rather than a general law about compiling above the bundled stdlib.

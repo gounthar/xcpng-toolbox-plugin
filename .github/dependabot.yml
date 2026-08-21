@@ -17,7 +17,7 @@
 #
 # Kotlin is ignored on the same grounds, and this file is where the reason was already
 # written down and not acted on. The paragraph that stood here said a Kotlin bump was "a
-# real change to test, not a routine one to wave through" — and then left Kotlin out of the
+# real change to test, not a routine one to wave through", and then left Kotlin out of the
 # ignore list below, so #15 raised 2.3.10 -> 2.4.10 and merged green. That is the failure
 # named four paragraphs down, committed in the file that names it.
 #
@@ -28,7 +28,7 @@
 #
 # kotlinx-coroutines and kotlinx-serialization are ignored outright, and that is not
 # neglect. Both are compileOnly because Toolbox ships them, so their pinned value is a
-# RUNTIME FLOOR read out of bin/lib in the installed app — not a release to keep current.
+# RUNTIME FLOOR read out of bin/lib in the installed app, not a release to keep current.
 # Raising one lifts the compile ceiling above the runtime floor, and CI cannot catch it
 # because CI only compiles; the failure is a NoSuchMethodError inside Toolbox.
 #

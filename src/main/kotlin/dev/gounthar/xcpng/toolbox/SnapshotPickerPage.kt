@@ -18,8 +18,8 @@ import kotlinx.coroutines.flow.StateFlow
  *
  * This replaces a text-input popup that printed the snapshot names into its prompt and matched
  * exactly against whatever the user typed. That was not a stylistic shortcoming, and the reason it
- * is gone is worth keeping: **the first person to use it transposed the name** — `test-tbx-1` for a
- * snapshot called `tbx-test-1` — and got "No such snapshot" on a snapshot that plainly existed.
+ * is gone is worth keeping: **the first person to use it transposed the name** (`test-tbx-1` for a
+ * snapshot called `tbx-test-1`) and got "No such snapshot" on a snapshot that plainly existed.
  * Measured 2026-08-19, first manual session.
  *
  * Exact matching was the right call for a destructive operation; fuzzy-matching a revert is how you
@@ -29,8 +29,8 @@ import kotlinx.coroutines.flow.StateFlow
  *
  * It also removes a false dependency recorded in CONTEXT.md, which said a real picker had to wait
  * for a settings page. It does not: [com.jetbrains.toolbox.api.ui.ToolboxUi.showUiPageSuspending] is callable
- * from anywhere holding a `ToolboxUi`. There is no list-picker *popup* — the popup family is
- * info / yesNo / okCancel / textInput / snackbar and nothing more — but a [UiPage] carrying a
+ * from anywhere holding a `ToolboxUi`. There is no list-picker *popup* (the popup family is
+ * info / yesNo / okCancel / textInput / snackbar and nothing more), but a [UiPage] carrying a
  * combobox is not a popup, and was available the whole time.
  *
  * @param onResult called exactly once, with the chosen snapshot or null if the user backed out.
@@ -49,7 +49,7 @@ class SnapshotPickerPage(
     /**
      * The selection is the snapshot **id**, never its name.
      *
-     * Two snapshots of one VM may share a name — XO does not stop you, and an automated snapshot
+     * Two snapshots of one VM may share a name: XO does not stop you, and an automated snapshot
      * schedule makes it likely rather than exotic. Keying on the id means the picker stays
      * unambiguous even when the labels are not.
      */
@@ -103,7 +103,7 @@ class SnapshotPickerPage(
     )
 
     /**
-     * Toolbox's own dismissal — the back arrow, or the page being closed out from under us.
+     * Toolbox's own dismissal: the back arrow, or the page being closed out from under us.
      *
      * Without this a user who backs out leaves the coroutine that opened this page suspended for
      * the lifetime of the plugin, holding a client factory and whatever the action was mid-way
@@ -118,19 +118,19 @@ class SnapshotPickerPage(
     // miss, on the assumption that afterHide means "this page went away". It means "this page is
     // hidden", which is not the same thing: **a combo box opens as a separate view on top, and
     // returning from it fires afterHide on the page underneath**. So picking a snapshot from the
-    // dropdown completed the deferred with null and cancelled the revert — the single interaction
+    // dropdown completed the deferred with null and cancelled the revert: the single interaction
     // this page exists for was the one that aborted it.
     //
     // Measured 2026-08-19 across two attempts, and the pair is why it is worth writing down. The
     // first opened the dropdown, chose an item, and cancelled. The second never touched the list,
     // took the preselected first snapshot, and reverted successfully. Same build. A page with one
     // snapshot in it therefore *works*, and the bug only appears once a user has a reason to
-    // choose — which is every VM with a second snapshot.
+    // choose, which is every VM with a second snapshot.
     //
     // The residual risk is a dismissal route that calls neither `cancel()` nor a button, which
     // would leave the calling coroutine suspended. That is worth accepting over a picker that
-    // cannot be used, and it is cheap to revisit if a stranded revert ever shows up in the log —
-    // the "revert of <uuid> cancelled." line is the thing to grep for, with Python not grep.
+    // cannot be used, and it is cheap to revisit if a stranded revert ever shows up in the log.
+    // The "revert of <uuid> cancelled." line is the thing to grep for, with Python not grep.
 
     private fun onResultOnce(value: XoSnapshot?) {
         if (answered.complete(Unit)) onResult(value)

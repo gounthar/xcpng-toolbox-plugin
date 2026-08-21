@@ -19,7 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
  *
  * The address half of this exists because of a measurement on the lab pool: `mainIpAddress` is a
  * *last-known* value, trustworthy only while a VM is running, and on the lab pool only 1 of 4
- * running VMs reported one at all — the one that did being XOA itself. A guest with no agent
+ * running VMs reported one at all, the one that did being XOA itself. A guest with no agent
  * reports nothing, forever, and no amount of waiting changes that. Letting the address be typed
  * turns "unreachable" into "reachable once you say where", which is the difference between a
  * plugin that lists VMs and one that connects to them.
@@ -32,7 +32,7 @@ class ConnectionSettingsPage(
     private val settings: XoSettings,
     private val i18n: LocalizableStringFactory,
     private val onSaved: () -> Unit,
-) : UiPage(MutableStateFlow(i18n.pnotr("Connection — \"${vm.nameLabel}\""))) {
+) : UiPage(MutableStateFlow(i18n.pnotr("Connection: \"${vm.nameLabel}\""))) {
 
     private val userField = TextField(
         i18n.ptrl("SSH username"),
@@ -47,7 +47,7 @@ class ConnectionSettingsPage(
      * The placeholder shows what the pool reports, so an empty field is visibly "use that".
      *
      * It deliberately reads differently for a halted VM. A stale address is the trap this whole
-     * area is built around — 4 of 10 VMs on the lab pool were halted and still serving one — so
+     * area is built around (4 of 10 VMs on the lab pool were halted and still serving one), so
      * showing it here without saying it is stale would be handing the user the exact wrong value
      * to copy into the field below.
      */
@@ -90,7 +90,7 @@ class ConnectionSettingsPage(
                  * preference. Rejecting needs a way to say why, and on this Toolbox build a
                  * `UiPage` has none: the field validator's `ValidationResult.Invalid` renders
                  * nothing, a `ValidationErrorField` in [fields] renders nothing, and
-                 * `ToolboxUi.showInfoPopup` renders nothing either — all three measured on
+                 * `ToolboxUi.showInfoPopup` renders nothing either, all three measured on
                  * 2026-08-19 by typing `root@192.168.1.99` and pressing Save. The same popup call
                  * works from a row's action menu, so the difference is that a page is open over
                  * it.
@@ -119,7 +119,7 @@ class ConnectionSettingsPage(
      * Moves a username or a port out of the address field and into its own.
      *
      * Writes back into the fields rather than only into the stored value, so the page carries the
-     * corrected form if it is shown again — the fields are the one part of a `UiPage` that has
+     * corrected form if it is shown again: the fields are the one part of a `UiPage` that has
      * been seen to render reliably.
      *
      * The rules themselves live in [normalise], which is a pure function of three strings. Keeping
@@ -156,7 +156,7 @@ class ConnectionSettingsPage(
          *
          * Pure on purpose; see [normaliseFields]. Every rule here exists because the address field
          * is the one place a user types free text, and what they type is usually a working SSH
-         * argument — `root@host`, `host:2222` — rather than a bare address.
+         * argument (`root@host`, `host:2222`) rather than a bare address.
          *
          * Nothing is rejected. That is forced rather than preferred: a `UiPage` on this Toolbox
          * build has no way to say why it refused, measured three ways on 2026-08-19, so a refusal
@@ -201,7 +201,7 @@ class ConnectionSettingsPage(
          * newline otherwise left the rest of the command sitting in the host.
          *
          * The `ssh ...` case is the one that bit hardest. Taking the first token of
-         * `ssh root@vm.local` yields `ssh`, which is not an error anywhere — it is stored, and the
+         * `ssh root@vm.local` yields `ssh`, which is not an error anywhere: it is stored, and the
          * page reports a successful save of a hostname that cannot resolve. Since a `UiPage` here
          * has no way to report a refusal, an unparseable paste returns **blank** instead: a field
          * that is visibly empty says "nothing was saved", which is the honest answer and the one
@@ -225,7 +225,7 @@ class ConnectionSettingsPage(
          *
          * Bracketed IPv6 is handled explicitly rather than merely excluded. Skipping anything
          * starting with `[` protects a bare `[::1]`, but it also silently left the `:2222` of
-         * `[::1]:2222` — the standard RFC 3986 form — glued to the host, so SSH would dial that
+         * `[::1]:2222` (the standard RFC 3986 form) glued to the host, so SSH would dial that
          * whole string on port 22.
          */
         private fun splitHostAndPort(host: String): Pair<String, String>? {

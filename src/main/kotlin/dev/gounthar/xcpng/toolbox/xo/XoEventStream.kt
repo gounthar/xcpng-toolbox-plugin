@@ -42,13 +42,13 @@ internal data class XoChange(
          * 2026-08-21:
          *
          * - `init` carries `{"id": "<connection id>"}` and is the transport's business, not this
-         *   one's. **The field is `id`, not `connectionId`** — reading it wrong yields
+         *   one's. **The field is `id`, not `connectionId`.** Reading it wrong yields
          *   `POST /events//subscriptions`, a 404 with an HTML body, and a stream that looks dead
          *   rather than misaddressed. That cost a wasted run before it was written down.
          * - `ping` carries `{"ping": <epoch millis>}` every 30 seconds and is not a change.
          * - `add`, `update` and `remove` **all carry the complete object**, not a delta and not a
          *   bare id. A `remove` frame carried 46 keys describing the object as it last was. Worth
-         *   knowing, because the obvious guess — that a removal names only an id — would have made
+         *   knowing, because the obvious guess (that a removal names only an id) would have made
          *   this return null for every deletion.
          */
         fun from(frame: SseFrame, json: Json): XoChange? {
@@ -77,7 +77,7 @@ internal const val VM_COLLECTION = "VM"
  *
  * Without this, a server that accepts a subscription and then immediately drops the stream gets
  * retried at the shortest delay forever, because "we subscribed successfully" looks like success.
- * A minute is long enough that a genuinely working stream always clears it — XO's keepalive is
+ * A minute is long enough that a genuinely working stream always clears it: XO's keepalive is
  * every 30 seconds, so a healthy connection has sent two pings by then.
  */
 private const val STABLE_CONNECTION_MILLIS = 60_000L
@@ -105,7 +105,7 @@ private const val READ_TIMEOUT_MILLIS = 95_000
 internal fun reconnectDelayMillis(attempt: Int): Long {
     val n = attempt.coerceAtLeast(1)
     // Capped before the shift, not after. `1000L shl 62` is negative, and a negative delay is not
-    // an error in `delay` — it returns immediately, turning the backoff into the busy loop it
+    // an error in `delay`: it returns immediately, turning the backoff into the busy loop it
     // exists to prevent. Over a Toolbox session left open for days that is reachable.
     val capped = n.coerceAtMost(6)
     return (1_000L shl (capped - 1)).coerceAtMost(30_000L)
@@ -128,13 +128,13 @@ internal fun nextAttempt(previous: Int, connectionLastedMillis: Long): Int =
  * pushes instead, and a power transition or a guest agent coming up is seen in about a second.
  *
  * **What it deliberately does not do is parse VMs out of the payload.** An event carries the raw
- * XO object, and `mainIpAddress` is computed by the REST representation layer *above* that object
- * — it is simply absent from an event, confirmed by subscribing with `fields: "*"` and reading all
+ * XO object, and `mainIpAddress` is computed by the REST representation layer *above* that object.
+ * It is simply absent from an event, confirmed by subscribing with `fields: "*"` and reading all
  * 49 keys. The address-shaped field is `addresses`, a map keyed `device/family/index`
  * (`{"0/ipv4/0": "192.168.1.173", "0/ipv6/0": "…"}`). Choosing a primary out of that is a rule XO
  * already owns and that we would be reimplementing from two observed samples, so this class
  * reports *that* something changed and leaves *what it now is* to a REST read. One implementation
- * of the address rule, and it is XO's — which matters because that field is the one this plugin
+ * of the address rule, and it is XO's, which matters because that field is the one this plugin
  * most depends on being right, and a wrong address looks like a working connection until an IDE
  * dials it.
  *
@@ -162,7 +162,7 @@ internal class XoEventStream(
      * plugin's lifetime, which is the leak the issue warned about.
      *
      * Errors are not propagated. A dropped stream is an ordinary event on a long-lived connection
-     * — a pool reboots, a laptop suspends, a VPN drops — and a flow completing exceptionally would
+     * (a pool reboots, a laptop suspends, a VPN drops), and a flow completing exceptionally would
      * take the reconnect logic with it. A caller that wants to know passes [onDisconnect], which
      * is called with the cause, or null when the server simply closed the stream.
      */
@@ -185,7 +185,7 @@ internal class XoEventStream(
             // it was one. Cancellation gets in by two routes that both look like a failure: the
             // read loop's own `isActive` check exits normally, so `failure` is null; and the
             // cancellation handler disconnects the socket, so a blocked read throws IOException.
-            // Neither is the stream dying — both are the user navigating away from the page.
+            // Neither is the stream dying: both are the user navigating away from the page.
             //
             // Caught by the live probe on 2026-08-21, which logged `disconnected, cause=null` on a
             // clean shutdown of the collector. Left alone it would have put "event stream dropped,
@@ -204,7 +204,7 @@ internal class XoEventStream(
      *
      * The `invokeOnCompletion` handle is the load-bearing part and the reason this is not a plain
      * `use {}`. **A blocking `readLine()` does not observe coroutine cancellation**, so a cancelled
-     * collector would otherwise sit on an open socket until the read timeout — up to 95 seconds of
+     * collector would otherwise sit on an open socket until the read timeout, up to 95 seconds of
      * a connection nobody wants, per hide. Disconnecting from the cancelling thread closes the
      * socket and makes the blocked read throw, which is the only thing that actually interrupts it.
      */
@@ -221,7 +221,7 @@ internal class XoEventStream(
                 if (!subscribed && frame.name == "init") {
                     // The subscription is a separate request against the connection id this frame
                     // carries, and it has to happen before anything is delivered: a bare
-                    // connection is silent by design. Frames are not missed while it runs — they
+                    // connection is silent by design. Frames are not missed while it runs; they
                     // queue in the socket buffer.
                     subscribe(connectionIdOf(frame) ?: break)
                     subscribed = true
@@ -253,7 +253,7 @@ internal class XoEventStream(
                 """{"collection":"$collection"}""",
             )
             // A refused subscription leaves a connected but silent stream, which is the single
-            // most confusing failure this class can have — it is indistinguishable from a quiet
+            // most confusing failure this class can have: it is indistinguishable from a quiet
             // pool. Throwing sends it round the reconnect loop with the reason in the log.
             require(response in 200..299) { "subscribing to $collection returned $response" }
         }

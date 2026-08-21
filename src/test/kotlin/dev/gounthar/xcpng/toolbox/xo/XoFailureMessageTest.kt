@@ -13,7 +13,7 @@ import kotlin.test.assertTrue
  * `featureCode` key that appears in no published document.
  *
  * The assertions deliberately check what a message must **not** say as well as what it must. The
- * defect being fixed was not a missing message — there was one, and it was confident, and it sent
+ * defect being fixed was not a missing message: there was one, and it was confident, and it sent
  * the reader to the URL and the token when both were correct.
  */
 class XoFailureMessageTest {
@@ -71,7 +71,7 @@ class XoFailureMessageTest {
     /**
      * The regression this whole file is for. On the licence gate the URL and the token are the two
      * things that are known good, so a message telling the reader to check them is worse than
-     * silence — it costs them a search through the only settings that cannot be at fault.
+     * silence: it costs them a search through the only settings that cannot be at fault.
      */
     @Test
     fun `the licence gate does not send the reader back to the URL or the token`() {
@@ -117,7 +117,7 @@ class XoFailureMessageTest {
 
     /**
      * A 404 that XO itself produced is a real answer about a real route, so it must not be turned
-     * into advice about the base URL — that URL demonstrably works, since a route answered.
+     * into advice about the base URL: that URL demonstrably works, since a route answered.
      */
     @Test
     fun `a JSON 404 is XO answering and keeps XO's own words`() {
@@ -148,7 +148,7 @@ class XoFailureMessageTest {
      * `JsonObject.str`, and `str` used to reach them via kotlinx's `jsonPrimitive`, which throws
      * an `IllegalArgumentException` on an object or an array instead of returning null. A body
      * nesting one of those keys therefore made the explaining code throw while explaining, and
-     * what the reader got was `Element class ... is not a JsonPrimitive` — a message strictly
+     * what the reader got was `Element class ... is not a JsonPrimitive`, a message strictly
      * worse than the "Check the URL and token" this file exists to delete.
      *
      * Not a hypothetical shape. `xenTools` is declared a string in XO's own OpenAPI document and

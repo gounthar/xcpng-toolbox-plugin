@@ -20,7 +20,7 @@ private val errorJson = Json { ignoreUnknownKeys = true }
  * control and naming it wrongly sends them looking for something that is not there. That is not a
  * hypothetical failure in this repo: `readableName` and the provider's constructor argument were
  * two independent strings for the same idea, one was changed, and the other kept rendering the old
- * value through a merged pull request — see PROVIDER_NAME.
+ * value through a merged pull request; see PROVIDER_NAME.
  *
  * It lives here rather than beside the checkbox because the message that names it is here, and
  * this package cannot import the UI one. `PoolSettingsPage` builds the checkbox from it.
@@ -40,16 +40,16 @@ internal const val SELF_SIGNED_CHECKBOX_LABEL = "Accept a self-signed certificat
  * xo-server 5.205.2) rather than read off the OpenAPI document, because the document describes
  * none of it. Bodies, verbatim, 2026-08-20:
  *
- * - **401** — `{"error": "invalid credentials"}`, for a malformed token and for no token at all.
- * - **403, licence gate** — `{"error": "feature Unauthorized", "data": {"featureCode": "RBAC",
+ * - **401**: `{"error": "invalid credentials"}`, for a malformed token and for no token at all.
+ * - **403, licence gate**: `{"error": "feature Unauthorized", "data": {"featureCode": "RBAC",
  *   "currentPlan": 1, "minPlan": 3}}`. Reproduced here as **admin** on `/acl-roles`, so it is not
  *   a non-admin phenomenon and a plugin will meet it with a perfectly good token.
- * - **403, permission** — `{"error": "not enough permissions"}`, with no `data` object. Recorded
+ * - **403, permission**: `{"error": "not enough permissions"}`, with no `data` object. Recorded
  *   on `/dashboard` with a non-admin token; that token has since been revoked, so this branch is
  *   keyed on the *absence* of `featureCode` rather than on matching that string. XO distinguishing
  *   the two is the finding, and keying on the discriminator rather than the wording is what keeps
  *   the split working if the wording moves.
- * - **404** — an HTML `Cannot GET /rest/v0/...` page, not JSON. Which is itself the signal: it
+ * - **404**: an HTML `Cannot GET /rest/v0/...` page, not JSON. Which is itself the signal: it
  *   means the request never reached a route, so the base URL is the thing to look at.
  */
 internal fun xoFailureMessage(what: String, status: Int, body: String): String {
@@ -109,7 +109,7 @@ private fun planNote(current: String?, min: String?): String = when {
  *
  * [xoFailureMessage] is the other half of this and starts where this one stops: it explains a
  * refusal Xen Orchestra *sent*, and needs a response to read. Everything below happens before
- * there is one — DNS, TCP, TLS — and arrives as an exception out of `HttpURLConnection` whose own
+ * there is one (DNS, TCP, TLS) and arrives as an exception out of `HttpURLConnection` whose own
  * message is usually a bare hostname or `Connection refused`, which names the symptom and no
  * cause. That is fine in a log and useless on a settings form, where the person reading it has
  * every input that could be at fault on screen in front of them.
@@ -133,12 +133,12 @@ internal fun xoUnreachableMessage(baseUrl: String, failure: Throwable): String =
     is SSLException ->
         "The appliance answered but its certificate was not trusted. XOA ships a self-signed " +
             "certificate, so this is the ordinary first connection rather than a sign of " +
-            "anything wrong — tick \"$SELF_SIGNED_CHECKBOX_LABEL\" on this page. " +
+            "anything wrong. Tick \"$SELF_SIGNED_CHECKBOX_LABEL\" on this page. " +
             "(${failure.message ?: failure::class.java.simpleName})"
 
     is ConnectException ->
         "Nothing is listening at $baseUrl. The name resolved, so the address is reachable and " +
-            "the port is not open — check the scheme and the port rather than the hostname."
+            "the port is not open. Check the scheme and the port rather than the hostname."
 
     is NoRouteToHostException ->
         "No route to $baseUrl. The address resolved and nothing refused the connection either, " +
@@ -146,7 +146,7 @@ internal fun xoUnreachableMessage(baseUrl: String, failure: Throwable): String =
 
     is SocketTimeoutException ->
         "$baseUrl did not answer in time. Nothing refused the connection, so something is " +
-            "dropping it silently rather than saying no — a firewall, or the wrong host entirely."
+            "dropping it silently rather than saying no: a firewall, or the wrong host entirely."
 
     is MalformedURLException ->
         "$baseUrl is not a URL this plugin can build a request from. It should be the " +

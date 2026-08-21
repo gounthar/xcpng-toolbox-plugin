@@ -16,7 +16,7 @@ import kotlin.test.assertTrue
  * methods. Nothing here needs Toolbox to be running.
  *
  * The case that earns its keep is the keychain one. A token silently left in plaintext looks
- * identical from the outside to a token stored properly — the pool lists either way — so the only
+ * identical from the outside to a token stored properly (the pool lists either way), so the only
  * cheap way to know is to assert on where it landed.
  */
 class XoSettingsTest {

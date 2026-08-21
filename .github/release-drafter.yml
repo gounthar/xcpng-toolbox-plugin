@@ -5,7 +5,7 @@
 #
 # This mirrors gounthar/xcpng-cloud-plugin deliberately, so the two XCP-ng repositories are
 # released the same way. Note it is label-driven, not conventional-commit-driven, even though
-# this repository writes conventional commits strictly — the version comes from the labels on
+# this repository writes conventional commits strictly: the version comes from the labels on
 # the merged pull request, so a release still needs a human to have labelled it or to accept
 # the patch default.
 ---

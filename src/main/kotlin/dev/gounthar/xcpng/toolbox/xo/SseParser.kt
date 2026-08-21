@@ -5,7 +5,7 @@ package dev.gounthar.xcpng.toolbox.xo
  *
  * [name] is nullable because the wire format allows a frame with only `data:` lines, which means
  * the default event type `message`. Xen Orchestra always names its events, so in practice this is
- * never null against XO — it is nullable to match the format rather than the appliance.
+ * never null against XO: it is nullable to match the format rather than the appliance.
  */
 internal data class SseFrame(val name: String?, val data: String)
 
@@ -26,7 +26,7 @@ internal data class SseFrame(val name: String?, val data: String)
  *
  * The rest of the format is implemented from the specification rather than from the appliance:
  * comment lines, multi-line `data:`, and the `id:`/`retry:` fields XO does not currently send.
- * That is deliberate — they cost three lines each and they are what a client breaks on when the
+ * That is deliberate: they cost three lines each and they are what a client breaks on when the
  * server starts sending them, which is not an event anybody gets told about.
  */
 internal class SseParser {
@@ -37,7 +37,7 @@ internal class SseParser {
     /**
      * Feed one line. Returns a frame when that line completed one, null otherwise.
      *
-     * A blank line completes a frame — but only if something was accumulated. Two blank lines in
+     * A blank line completes a frame, but only if something was accumulated. Two blank lines in
      * a row must not produce an empty frame, and a keepalive comment followed by a blank line
      * must not either.
      */

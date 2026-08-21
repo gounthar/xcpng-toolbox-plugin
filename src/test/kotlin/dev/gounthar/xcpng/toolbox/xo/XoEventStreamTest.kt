@@ -10,7 +10,7 @@ import kotlin.test.assertTrue
  * The pure halves of the event stream: which frames are changes, and how hard to retry.
  *
  * The transport itself needs a socket and is not tested here. What is tested is everything that
- * decides *meaning*, because that is where being wrong is silent — a frame vocabulary that misses
+ * decides *meaning*, because that is where being wrong is silent: a frame vocabulary that misses
  * `remove` produces a plugin which simply never notices a deleted VM, and no error anywhere says
  * so.
  */
@@ -103,7 +103,7 @@ class XoEventStreamTest {
      * The overflow case, which is reachable rather than theoretical: a Toolbox session left open
      * for days against an unreachable pool climbs this counter indefinitely. `1000L shl 62` is
      * negative, and `delay` treats a negative value as "return immediately" rather than as an
-     * error — so getting this wrong turns the backoff into the busy loop it exists to prevent.
+     * error, so getting this wrong turns the backoff into the busy loop it exists to prevent.
      */
     @Test
     fun `a large attempt count stays capped and positive`() {

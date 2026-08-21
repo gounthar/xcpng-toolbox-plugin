@@ -66,7 +66,7 @@ val generateExtensionJson by tasks.registering {
     // Note it is readableName, NOT name. Coder does not hit this because
     // structure-toolbox's ToolboxMeta maps its `name` parameter onto readableName.
     //
-    // readableName names the PLUGIN. It is not the string in the environment list — that comes
+    // readableName names the PLUGIN. It is not the string in the environment list; that comes
     // from PROVIDER_NAME in XcpngRemoteProvider.kt, and the two must be changed together. PR #6
     // changed only this one and the list still read "XCP-ng" on the next launch.
     doLast {

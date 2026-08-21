@@ -7,7 +7,7 @@
 #
 # What this does not do is worth stating, because it is the failure this project keeps hitting:
 # a change can compile, pass every test, and still be wrong in the Toolbox UI. Pull request #7
-# was exactly that — a display name that was correct in the diff and wrong on screen. CI raises
+# was exactly that: a display name that was correct in the diff and wrong on screen. CI raises
 # the floor here; installing the plugin and looking at it is still the only check for anything
 # Toolbox renders.
 ---
@@ -114,7 +114,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v6
 
       # `build` covers compileKotlin, test and jar. The Toolbox API artifacts it resolves are
-      # not on Maven Central — they come from packages.jetbrains.team, anonymously readable
+      # not on Maven Central: they come from packages.jetbrains.team, anonymously readable
       # (verified 2026-08-20). No credential is needed and none should be added here.
       - name: Build and test
         run: ./gradlew build
