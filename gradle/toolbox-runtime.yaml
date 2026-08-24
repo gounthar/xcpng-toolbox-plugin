@@ -33,7 +33,7 @@
 # The Toolbox build the three values below were read from. 3.7.1.87197 was verified twice
 # over: against the published manifest for that build, and against bin/lib of the same build
 # installed on Windows, on 2026-08-20.
-build: 3.7.1.87197
+build: 3.7.2.87231
 
 # What that build bundles, by JetBrains' own display names:
 #   kotlin        -> "Kotlin"
