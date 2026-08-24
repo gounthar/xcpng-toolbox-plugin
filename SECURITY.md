@@ -44,9 +44,35 @@ available, the practical answer is an admin token, and **an admin token is the w
 every VM listed, and power-cycling authority over all of them. That is not what "give somebody
 access to their dev box" sounds like, so it is said here plainly.
 
+**How to tell which appliance you have.** Scoping needs a per-developer token, and the
+non-admin REST surface is licence-gated. On an appliance below the threshold every non-admin data
+route answers `403` with `featureCode: RBAC` and a body naming `currentPlan` and `minPlan`, so a
+scoped token cannot reach the route at all, scoped or not. Ask for any VM as the non-admin user
+and read the body:
+
+```sh
+# On a pool whose certificate your machine already trusts.
+curl -sS -u '<user>' https://<xoa>/rest/v0/vms
+
+# On a stock XOA, which ships a self-signed certificate: point curl at its CA.
+curl -sS --cacert /path/to/xoa-ca.pem -u '<user>' https://<xoa>/rest/v0/vms
+```
+
+Give `-u` the username only. curl then prompts for the password, which keeps it out of your shell
+history and out of the process arguments any other user on the machine can read. Reach for `-k`
+only on a lab pool you are willing to lose: it disables certificate validation, so the connection
+is encrypted but not authenticated and anyone on the path can present their own certificate and
+take the credential you just typed. That is the same trade the checkbox below makes, for the same
+reason.
+
+A list means scoping is available to you. A `403` naming `featureCode: RBAC` means it is not, a
+shared token is the only working design on that appliance, and the paragraph above is the one that
+applies. Read the body rather than the exit status: a certificate failure returns no body at all
+and is not the gate.
+
 Xen Orchestra can scope this properly, server-side, and it is the better answer where it is
 available: an ACL V2 privilege carries an optional `selector`, and both the VM list and the power
-verbs respect it. Two measured warnings if you set one up:
+verbs respect it. Four measured warnings if you set one up:
 
 - **`tags:` and `id:` selectors match by case-insensitive substring, not exactly.**
   `tags:dev` also grants `dev-prod`, `development` and `my-dev-box`. `id:a` grants any VM whose
@@ -54,6 +80,14 @@ verbs respect it. Two measured warnings if you set one up:
 - **An over-broad `deny` fails silently in the dangerous direction.** The collection route answers
   `200 []`, never an error, so a scope denied by a stray substring is indistinguishable from an
   unconfigured pool.
+- **`vm-snapshot` is a separate privilege resource, and forgetting it empties the revert picker.**
+  Granting every `vm` privilege still leaves `GET /vm-snapshots` returning nothing, including
+  snapshots that user took themselves. Grant `read on vm-snapshot` with the same selector. Note
+  that reverting is `revert-snapshot` on the *vm*, not an action on the snapshot.
+- **Inherited tags are a snapshot-time copy, not a live link.** A snapshot takes its parent VM's
+  tags at the moment it is taken and does not follow the VM afterwards, so somebody added to a
+  tag-based scope after their snapshots exist sees the VM but not its history. Nothing this plugin
+  can fix from its side.
 
 ## Accept a self-signed certificate
 
