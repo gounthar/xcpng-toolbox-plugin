@@ -7,7 +7,7 @@
 # something you did not type is a rule people learn to bypass with --no-verify, and a rule
 # bypassed by habit enforces nothing.
 #
-# So the common case -- an editor or assistant appending a Co-Authored-By trailer naming a
+# So the common case -- an editor integration appending a Co-Authored-By trailer naming a
 # tool -- is simply removed here, silently and idempotently. Anything that survives to
 # commit-msg is prose somebody actually wrote, which is the case worth stopping to think
 # about.
