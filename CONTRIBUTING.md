@@ -6,6 +6,8 @@ Thanks for looking. This is a personal project rather than a product, so the bar
 Read the second paragraph of the [README](README.md) first if you have not: this is not a
 Vates project and bugs belong on this repository rather than with XCP-ng.
 
+Participation is covered by the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## The two rules that are enforced mechanically
 
 Both will fail your build or your pull request rather than being caught in review, so they
