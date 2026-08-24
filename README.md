@@ -152,5 +152,6 @@ could not run must not look like one that passed.
   one check CI structurally cannot do.
 - [SECURITY.md](SECURITY.md) for what the plugin holds, what the token can do, and how to report
   something privately.
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), the Contributor Covenant 2.1 unmodified.
 - [MIT](LICENSE). Coder's Toolbox plugin, which is the worked example this one was written by
   reading, is MIT too.
