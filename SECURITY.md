@@ -50,13 +50,25 @@ route answers `403` with `featureCode: RBAC` and a body naming `currentPlan` and
 scoped token cannot reach the route at all, scoped or not. Ask for any VM as the non-admin user
 and read the body:
 
+```sh
+# On a pool whose certificate your machine already trusts.
+curl -sS -u '<user>' https://<xoa>/rest/v0/vms
+
+# On a stock XOA, which ships a self-signed certificate: point curl at its CA.
+curl -sS --cacert /path/to/xoa-ca.pem -u '<user>' https://<xoa>/rest/v0/vms
 ```
-curl -sk -u '<user>:<password>' https://<xoa>/rest/v0/vms
-```
+
+Give `-u` the username only. curl then prompts for the password, which keeps it out of your shell
+history and out of the process arguments any other user on the machine can read. Reach for `-k`
+only on a lab pool you are willing to lose: it disables certificate validation, so the connection
+is encrypted but not authenticated and anyone on the path can present their own certificate and
+take the credential you just typed. That is the same trade the checkbox below makes, for the same
+reason.
 
 A list means scoping is available to you. A `403` naming `featureCode: RBAC` means it is not, a
 shared token is the only working design on that appliance, and the paragraph above is the one that
-applies.
+applies. Read the body rather than the exit status: a certificate failure returns no body at all
+and is not the gate.
 
 Xen Orchestra can scope this properly, server-side, and it is the better answer where it is
 available: an ACL V2 privilege carries an optional `selector`, and both the VM list and the power
