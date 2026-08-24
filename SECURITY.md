@@ -16,7 +16,7 @@ Vates project and has no visibility into theirs. Those go to Vates through their
 ## What the plugin holds
 
 **One credential: a Xen Orchestra REST API token.** It is written to the OS keychain through
-Toolbox's `PluginSecretStore`, which is `windows-dpapi` on Windows. The settings page never
+Toolbox's `PluginSecretStore`, which is `windows-dpapi` on the Windows build this was measured on. The settings page never
 pre-fills the field with the stored value, because reading a secret back out of the keychain to
 paint it into a form puts it on screen for no reason; a blank field means "keep the stored one"
 rather than "there is no token".
@@ -24,8 +24,8 @@ rather than "there is no token".
 **There is one plaintext path and it is deliberate.** A token seeded by hand into the plugin's
 `settings.json` before the settings page existed is still read, because `settings.json` is
 plaintext on disk and the alternative was silently ignoring somebody's working configuration.
-It is migrated on sight: writing anything through the settings page moves it to the keychain and
-blanks the file copy. A token entered through the UI never touches the file at all.
+It is migrated on the first save: writing anything through the settings page moves it to the
+keychain and blanks the file copy. A token entered through the UI never touches the file at all.
 
 **No SSH credential is handled anywhere.** The plugin resolves a username, an address and a port
 and hands them to Toolbox; Toolbox's own SSH deployment session does the rest, using the system
@@ -94,7 +94,11 @@ verbs respect it. Four measured warnings if you set one up:
 The settings page has a checkbox for it, and XOA ships a self-signed certificate, so on a lab
 pool it is usually ticked. Be clear about what it costs: with it on, certificate validation is
 disabled for the pool connection, so the connection is encrypted but not authenticated and an
-attacker positioned on the path can present their own certificate and read the token.
+attacker positioned on the path can present their own certificate and read the token. It reaches
+further than the token: by forging Xen Orchestra's replies the same attacker can point the plugin
+at an SSH host of their choosing, which Toolbox will then connect to with your own keys and agent.
+SSH's own host-key check is the remaining guard there, and on a VM you have never reached it is a
+first-connection prompt.
 
 It is off by default and the failure message that tells you to tick it names the certificate
 error verbatim, so you can tell an ordinary first connection to a self-signed appliance from

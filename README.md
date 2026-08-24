@@ -42,7 +42,7 @@ screen.
 username, with a Test connection button that names what actually went wrong. A per-VM page for a
 username, an address override and a port. The token goes to the OS keychain, not to a file.
 
-**Tests: 125, no failures.** They run on every push and pull request. Read what they are worth
+**Tests: 125, no failures.** They run on every pull request and every push to main. Read what they are worth
 honestly: they cover parsing, message wording, settings and the refusal logic, and they cannot
 see anything Toolbox renders. This project's most repeated failure is a change that compiles,
 passes everything, and is wrong on screen.
