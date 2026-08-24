@@ -1,0 +1,76 @@
+---
+name: Bug report
+description: Something the plugin does that it should not, or does not do that it should
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: this is not a Vates project. If the problem is with XCP-ng or Xen
+        Orchestra themselves rather than with this plugin, it belongs with them.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what you expected instead
+      placeholder: |
+        Clicking Start on a halted VM did nothing visible, and the row stayed on Halted.
+        I expected it to move to Activating and then Running.
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: The log
+      description: >
+        Windows `%LOCALAPPDATA%\JetBrains\Toolbox\logs\toolbox.latest.log`, Linux
+        `~/.local/share/JetBrains/Toolbox/logs/toolbox.latest.log`. Every line this plugin
+        writes is prefixed `XCP-ng:`, so searching for that finds most of what matters.
+        REDACT your pool address and anything token-shaped before pasting.
+      render: text
+    validations:
+      required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        If the only thing you saw was a popup, please type out its wording. Popups are never
+        written to the log, so the text on your screen is the only copy that exists.
+
+  - type: input
+    id: toolbox-version
+    attributes:
+      label: Toolbox version
+      description: Toolbox settings, About. It self-upgrades quietly, so please read it rather than recalling it.
+      placeholder: 3.7.2.87231
+    validations:
+      required: true
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      placeholder: 0.0.1
+    validations:
+      required: false
+
+  - type: input
+    id: xo-version
+    attributes:
+      label: Xen Orchestra version, and whether it is XOA or built from source
+      placeholder: XOA, xo-server 5.205.2
+    validations:
+      required: false
+
+  - type: textarea
+    id: vm
+    attributes:
+      label: The VM, if the problem is about one
+      description: >
+        Power state, whether the guest reports an address, whether it has a guest agent, and
+        whether you set a per-VM address override. Several of this plugin's refusals are about
+        exactly these, and the message it showed you names which one.
+    validations:
+      required: false

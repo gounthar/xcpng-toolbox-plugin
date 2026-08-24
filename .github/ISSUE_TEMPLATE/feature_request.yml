@@ -1,0 +1,30 @@
+---
+name: Feature request
+description: Something the plugin could do
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do
+      description: >
+        The task rather than the feature, if you can. Several things this plugin does exist
+        because somebody described a problem and the obvious feature turned out to be the
+        wrong answer to it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you think would solve it
+    validations:
+      required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        Worth knowing before you ask for VM lifecycle beyond what is here: Toolbox's API does
+        not provide start and stop. Everything on the action menu is this plugin calling Xen
+        Orchestra itself, so a new verb means a new REST call rather than a switch to flip.
