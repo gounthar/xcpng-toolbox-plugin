@@ -20,6 +20,11 @@ import kotlin.test.assertTrue
  * address and only 1 of 4 running ones did (exactly backwards from intuition), so a client that
  * passed the field straight through would look healthy right up to the moment an IDE dialled a
  * machine that is not there.
+ *
+ * One substitution: the appliance's `name_label` below is a plain `xoa` rather than the label it
+ * actually carried, which named a throwaway appliance somebody else had deployed for an unrelated
+ * test. Nothing under test reads that field, and a fixture pasted out of a live response is also
+ * evidence about the thing it came from, which is easy to forget while treating it as test data.
  */
 class XoVmParsingTest {
 
@@ -33,7 +38,7 @@ class XoVmParsingTest {
             """
             {
               "uuid": "c9dbe58e-dc37-8926-7e1c-b45e70270cd4",
-              "name_label": "XOA-selfservice-test-20260814",
+              "name_label": "xoa",
               "power_state": "Running",
               "mainIpAddress": "192.168.1.5",
               "os_version": { "name": "Debian 12", "uname": "6.1.0-52-amd64", "distro": "Debian" }
@@ -41,7 +46,7 @@ class XoVmParsingTest {
             """,
         )
         assertEquals("c9dbe58e-dc37-8926-7e1c-b45e70270cd4", vm.uuid)
-        assertEquals("XOA-selfservice-test-20260814", vm.nameLabel)
+        assertEquals("xoa", vm.nameLabel)
         assertEquals(XoPowerState.RUNNING, vm.powerState)
         assertEquals("192.168.1.5", vm.mainIpAddress)
         assertEquals(true, vm.guestIsReporting)

@@ -1,0 +1,11 @@
+---
+blank_issues_enabled: true
+contact_links:
+  - name: XCP-ng or Xen Orchestra itself
+    url: https://xcp-ng.org/forum/
+    about: >
+      This plugin is unofficial and not a Vates project. Problems with XCP-ng or Xen Orchestra
+      themselves belong on their forum, not here.
+  - name: Security report
+    url: https://github.com/gounthar/xcpng-toolbox-plugin/security/advisories/new
+    about: Report privately rather than in a public issue. See SECURITY.md.
