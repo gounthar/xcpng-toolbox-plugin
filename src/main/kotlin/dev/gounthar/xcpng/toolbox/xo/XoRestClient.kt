@@ -43,17 +43,20 @@ class XoRestClient(
     /**
      * Fields XO should return. Asking for a subset keeps the payload small.
      *
-     * `os_version` is here as the guest-reporting signal, and that is measured rather than
-     * assumed: across the ten VMs on the lab pool it was non-empty on 5/5 of those reporting a
-     * `mainIpAddress` and empty on 0/5 of those not. `xentools` managed only 1/5, and
-     * `pvDriversDetected` was true on 3/5 VMs that reported **no** address, so PV drivers are not
-     * the same question as "is the guest talking to us".
+     * `os_version` is the guest-reporting signal, and that is measured rather than assumed: across
+     * the ten VMs on the lab pool it was non-empty on 5/5 of those reporting a `mainIpAddress` and
+     * empty on 0/5 of those not. `pvDriversDetected` was true on 3/5 VMs that reported **no**
+     * address, so PV drivers are not the same question as "is the guest talking to us".
      *
-     * Casing trap: the REST schema spells it `xentools`, the JSON-RPC objects returned by
-     * `xo-cli list-objects` spell it `xenTools`. Same concept, two surfaces, different casing.
-     * This client talks REST, so `xentools` is right here; do not "correct" it from xo-cli output.
+     * **`xentools` is deliberately not requested, and the reason corrects what this comment used
+     * to say.** It claimed the REST schema spells the field `xentools` and that only the JSON-RPC
+     * surface spells it `xenTools`. Measured on a guest that has the tools, 2026-08-19: REST
+     * returns **`xenTools`**, camelCase, and returns it as an **object**
+     * (`{"major": 7, "minor": 30, "version": 7.3}`) rather than the string its own OpenAPI document
+     * declares. So the old field name was never returned and the old string read could never have
+     * matched one. `os_version` was doing all the work; it now does it alone.
      */
-    private val vmFields = "uuid,name_label,power_state,mainIpAddress,os_version,xentools"
+    private val vmFields = "uuid,name_label,power_state,mainIpAddress,os_version"
 
     /** `$snapshot_of` is the parent VM, and it is what makes a snapshot list per-VM. */
     private val snapshotFields = "id,uuid,name_label,snapshot_time,\$snapshot_of"
@@ -250,8 +253,9 @@ internal fun JsonObject.toXoVm(): XoVm = XoVm(
     // known address rather than a live one. Handing a halted VM's cached address to an IDE as an
     // SSH target would look like a working connection and fail.
     mainIpAddress = str("mainIpAddress")?.takeIf { str("power_state") == "Running" },
-    // A non-empty os_version means the guest is reporting, which is what actually matters. See
-    // the note on vmFields for why this beats xentools. Both are read; os_version decides.
-    guestIsReporting = (this["os_version"] as? JsonObject)?.isNotEmpty()
-        ?: str("xentools")?.isNotBlank(),
+    // A non-empty os_version means the guest is reporting, which is what actually matters, and it
+    // is the only signal read: see the note on vmFields for the xenTools casing and type trap that
+    // made the old fallback unreachable. Absent stays null, because "XO did not send the field" is
+    // a different answer from "the guest is silent".
+    guestIsReporting = (this["os_version"] as? JsonObject)?.isNotEmpty(),
 )
