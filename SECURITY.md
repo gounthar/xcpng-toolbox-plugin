@@ -70,6 +70,19 @@ shared token is the only working design on that appliance, and the paragraph abo
 applies. Read the body rather than the exit status: a certificate failure returns no body at all
 and is not the gate.
 
+Two things that paragraph does not tell you, both of which widen who can use scoping. A trial
+lifts the gate: an appliance registered with a `xen-orchestra.com` account and started on a trial
+reports Premium for 31 days, measured from the licence object rather than from the documentation,
+which says 15 days in one place and 14 in another and is wrong in both. So a free appliance inside
+its trial scopes exactly like a licensed one, and nobody has to buy anything to find out whether
+this suits them. Whether a replacement appliance can be registered for a fresh trial is a question
+about registration rather than about the API, and it is not answered here.
+
+The gate is also narrower than the error body suggests. Xen Orchestra's own documentation says
+RBAC is an XOA bundle restriction and that installations from the sources are not restricted, so
+on a from-source XO the scoping described above is simply available. That is what their
+documentation states rather than something measured here.
+
 Xen Orchestra can scope this properly, server-side, and it is the better answer where it is
 available: an ACL V2 privilege carries an optional `selector`, and both the VM list and the power
 verbs respect it. Four measured warnings if you set one up:
@@ -88,6 +101,32 @@ verbs respect it. Four measured warnings if you set one up:
   tags at the moment it is taken and does not follow the VM afterwards, so somebody added to a
   tag-based scope after their snapshots exist sees the VM but not its history. Nothing this plugin
   can fix from its side.
+
+## What reaches the log
+
+The token never does. The only line that goes near it records whether one was typed, as a boolean:
+
+```kotlin
+"XCP-ng: test attempt url=<...> stored=<...> typedToken=${attempt.typedToken != null} ..."
+```
+
+What the log does contain, at INFO and WARN:
+
+- **The Xen Orchestra base URL**, on every refresh, on a stream drop and on a connection test.
+- **VM UUIDs**, on a connect, a snapshot, a revert and any failed action.
+- **The resolved SSH endpoint**, as `user@host:port`, on every connect.
+- **Snapshot names and ids**, including the name typed into the snapshot dialog.
+- **A warning naming no value** when the token was read from the plaintext `settings.json`
+  fallback rather than from the keychain.
+- **Xen Orchestra's own error text** when a call fails, which is XO's message rather than anything
+  this plugin composes.
+
+VM name labels are not logged. Neither is anything read out of the guest.
+
+None of that is a credential, but the third line is worth a moment: a username, a host and a port
+together describe how to reach a developer's machine, and Toolbox's log is an ordinary file on
+disk. If that matters where you work, it is a reason to keep the log rather than a reason to fear
+it, but it should be a decision rather than a surprise.
 
 ## Accept a self-signed certificate
 
@@ -109,7 +148,8 @@ something worth stopping for. On a pool with a certificate your machine trusts, 
 ## Scope
 
 In scope: this plugin's handling of the token, the endpoint it resolves and hands to Toolbox,
-and what it writes to disk or to the log.
+and what it writes to disk or to the log. What reaches the log is listed above rather than left
+for you to take on trust.
 
 Out of scope: Xen Orchestra, XCP-ng, JetBrains Toolbox, and anything reachable only by someone
 who already has the machine or the keychain.
