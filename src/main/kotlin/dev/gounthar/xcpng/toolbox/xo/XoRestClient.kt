@@ -8,6 +8,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import javax.net.ssl.HttpsURLConnection
@@ -184,9 +185,11 @@ class XoRestClient(
             }
             val status = connection.responseCode
             // A 4xx or 5xx puts the body on the error stream, and that body is where XO explains
-            // itself, so it is read rather than discarded.
-            val stream = if (status in 200..399) connection.inputStream else connection.errorStream
-            Response(status, stream?.use { it.readBytes().toString(Charsets.UTF_8) }.orEmpty())
+            // itself, so it is read rather than discarded. Only that branch is bounded: see
+            // [readResponseBody] for why the two branches cannot share one read.
+            val failed = status !in 200..399
+            val stream = if (failed) connection.errorStream else connection.inputStream
+            Response(status, readResponseBody(stream, bounded = failed))
         } finally {
             connection.disconnect()
         }
@@ -213,6 +216,27 @@ class XoRestClient(
 
     private fun quote(s: String) = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 }
+
+/**
+ * One response body as a string: in full, or through a bounded prefix.
+ *
+ * Split out of `XoRestClient.call` so both rules can be held against a stream in a test rather
+ * than against an appliance, because they pull in opposite directions and only one of them fails
+ * loudly. Bounding a failure body costs nothing, since every consumer keeps a couple of hundred
+ * characters of it; bounding a success body would truncate the pool's VM list, which is the
+ * response this client exists to read, and `listVms` would then fail to parse a payload that had
+ * arrived intact. That asymmetry is why the [ERROR_BODY_PREFIX_BYTES] fix applied to the event
+ * stream could not simply be copied here.
+ *
+ * [bounded] is passed rather than derived from the status, because the caller has already decided
+ * which of the two streams to read and deriving it again here would be the same decision written
+ * twice, in two places free to drift apart.
+ */
+internal fun readResponseBody(stream: InputStream?, bounded: Boolean): String =
+    stream
+        ?.use { if (bounded) it.readNBytes(ERROR_BODY_PREFIX_BYTES) else it.readBytes() }
+        ?.toString(Charsets.UTF_8)
+        .orEmpty()
 
 /**
  * Whether XO's answer to an action counts as "not a failure".

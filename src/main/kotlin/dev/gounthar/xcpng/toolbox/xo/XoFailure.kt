@@ -28,6 +28,32 @@ private val errorJson = Json { ignoreUnknownKeys = true }
 internal const val SELF_SIGNED_CHECKBOX_LABEL = "Accept a self-signed certificate"
 
 /**
+ * How much of a failure body to read before giving up on it.
+ *
+ * Every consumer throws nearly all of it away: [xoFailureMessage] reads a handful of named fields,
+ * `subscriptionFailureMessage` and `XoRestClient.orThrow` keep 200 characters. Reading a whole
+ * stream in order to discard it is the part worth avoiding, and the body on the far end is not
+ * necessarily XO's small JSON error object: a proxy or a load balancer in front of the appliance
+ * answers failures with an HTML page, and nothing in the protocol bounds how large that is. So an
+ * unbounded `readBytes()` on a failure is an allocation sized by whatever the far end decided to
+ * send.
+ *
+ * It matters most on `XoEventStream.post`, which runs on **every reconnect** and so re-reads that
+ * body on a retry loop. `XoRestClient.call` never retries on its own, which is why it was left
+ * alone when the stream was fixed, and why the same bound then had to be applied to the error
+ * branch alone: success and error share one read there, and the success bodies are legitimately
+ * large, since `listVms` parses the pool's VM list out of that call.
+ *
+ * 8 KiB is far more than either message can use and small enough to be uninteresting. Reading a
+ * byte prefix can split a multi-byte character at the boundary, which yields one replacement
+ * character at the very end of a string that is about to be cut to 200 characters anyway.
+ *
+ * Shared rather than declared twice, on the same grounds as [SELF_SIGNED_CHECKBOX_LABEL]: one
+ * number carrying one rationale, in the file both callers already read their failure wording from.
+ */
+internal const val ERROR_BODY_PREFIX_BYTES = 8 * 1024
+
+/**
  * What to tell somebody when Xen Orchestra refuses a read.
  *
  * This exists because the message it replaces named the two things that were fine. `ping()` used
