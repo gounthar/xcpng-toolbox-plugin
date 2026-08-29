@@ -97,6 +97,8 @@ disabled for the pool connection, so the connection is encrypted but not authent
 attacker positioned on the path can present their own certificate and read the token. It reaches
 further than the token: by forging Xen Orchestra's replies the same attacker can point the plugin
 at an SSH host of their choosing, which Toolbox will then connect to with your own keys and agent.
+A per-VM SSH host override takes precedence over the address Xen Orchestra reports, so the
+redirection only reaches a VM you have not overridden, which is most of them.
 SSH's own host-key check is the remaining guard there, and on a VM you have never reached it is a
 first-connection prompt.
 
