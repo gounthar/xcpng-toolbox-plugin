@@ -70,6 +70,19 @@ shared token is the only working design on that appliance, and the paragraph abo
 applies. Read the body rather than the exit status: a certificate failure returns no body at all
 and is not the gate.
 
+Two things that paragraph does not tell you, both of which widen who can use scoping. A trial
+lifts the gate: an appliance registered with a `xen-orchestra.com` account and started on a trial
+reports Premium for 31 days, measured from the licence object rather than from the documentation,
+which says 15 days in one place and 14 in another and is wrong in both. So a free appliance inside
+its trial scopes exactly like a licensed one, and nobody has to buy anything to find out whether
+this suits them. Whether a replacement appliance can be registered for a fresh trial is a question
+about registration rather than about the API, and it is not answered here.
+
+The gate is also narrower than the error body suggests. Xen Orchestra's own documentation says
+RBAC is an XOA bundle restriction and that installations from the sources are not restricted, so
+on a from-source XO the scoping described above is simply available. That is what their
+documentation states rather than something measured here.
+
 Xen Orchestra can scope this properly, server-side, and it is the better answer where it is
 available: an ACL V2 privilege carries an optional `selector`, and both the VM list and the power
 verbs respect it. Four measured warnings if you set one up:
