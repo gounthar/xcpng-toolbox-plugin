@@ -1,5 +1,6 @@
 package dev.gounthar.xcpng.toolbox.xo
 
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -130,5 +131,105 @@ class XoEventStreamTest {
         assertEquals(1, nextAttempt(previous = 5, connectionLastedMillis = 600_000))
         assertEquals(6, nextAttempt(previous = 5, connectionLastedMillis = 59_999))
         assertEquals(2, nextAttempt(previous = 1, connectionLastedMillis = 0))
+    }
+
+    /**
+     * The end-of-stream rule, run against the real loop rather than against a copy of it.
+     *
+     * `readFrames` is the production frame loop with the socket reduced to a line source, so these
+     * feed it the lines a `BufferedReader` would hand it and end with the null that means EOF. No
+     * `init` frame appears in any of them, which is what keeps `subscribe` from being reached and
+     * makes this a test rather than an outbound request.
+     */
+    private fun framesFrom(vararg lines: String): List<XoChange> {
+        val stream = XoEventStream("https://xoa.invalid", "token")
+        val remaining = lines.iterator()
+        val collected = mutableListOf<XoChange>()
+        runBlocking {
+            stream.readFrames(
+                readLine = { if (remaining.hasNext()) remaining.next() else null },
+                emit = { collected += it },
+            )
+        }
+        return collected
+    }
+
+    /**
+     * The bug this replaced: a frame the server sent without its trailing blank line was parsed,
+     * buffered, and then dropped when the read hit EOF. `SseParser.complete()` documented itself
+     * as existing for exactly this and had no caller, so the affordance was dead and the comment
+     * described an intention rather than the code.
+     *
+     * XO always sends the blank line, so nothing was lost against the appliance directly. A proxy
+     * that closes the connection right after a `data:` line is the exposure, and it is not under
+     * anybody's control here.
+     */
+    @Test
+    fun `a frame left unterminated at end of stream is emitted rather than dropped`() {
+        val changes = framesFrom("event: update", "data: $vmPayload")
+        assertEquals(1, changes.size, "the buffered frame should survive EOF")
+        assertEquals(XoChangeKind.UPDATED, changes.single().kind)
+        assertEquals("081c58c4-a886-81a0-a401-29828379449e", changes.single().id)
+    }
+
+    /**
+     * The control that makes the test above mean something.
+     *
+     * A flush that fired unconditionally would emit the last frame twice on a normal stream, which
+     * is the obvious way to get the first test passing and a worse bug than the one being fixed:
+     * every VM change would be delivered twice, and the plugin would re-read the pool for each.
+     */
+    @Test
+    fun `a normally terminated stream still delivers each frame exactly once`() {
+        val changes = framesFrom("event: update", "data: $vmPayload", "")
+        assertEquals(1, changes.size, "the trailing blank line already completed this frame")
+    }
+
+    @Test
+    fun `several frames arrive in order, terminated or not`() {
+        val changes = framesFrom(
+            "event: add",
+            """data: {"type":"VM","id":"a"}""",
+            "",
+            "event: remove",
+            """data: {"type":"VM","id":"b"}""",
+            "",
+            // Third frame deliberately unterminated: the stream ends here.
+            "event: update",
+            """data: {"type":"VM","id":"c"}""",
+        )
+        assertEquals(listOf("a", "b", "c"), changes.map { it.id })
+        assertEquals(
+            listOf(XoChangeKind.ADDED, XoChangeKind.REMOVED, XoChangeKind.UPDATED),
+            changes.map { it.kind },
+        )
+    }
+
+    /** An empty stream must not manufacture a frame out of an empty parser. */
+    @Test
+    fun `a stream that closes immediately emits nothing`() {
+        assertEquals(0, framesFrom().size)
+        assertEquals(0, framesFrom("").size)
+        assertEquals(0, framesFrom(": keepalive").size)
+    }
+
+    /**
+     * A trailing `init` is dropped rather than acted on, and this is the case worth pinning.
+     *
+     * Subscribing needs a POST against the connection id the frame carries, and at EOF that
+     * connection is already gone, so the request would be pointless at best. It falls out of the
+     * flush going through [XoChange.from], which answers null for anything that is not an add,
+     * update or remove, rather than out of a special case.
+     */
+    @Test
+    fun `a trailing init frame does not become a change and does not subscribe`() {
+        val changes = framesFrom("event: init", """data: {"id":"fc9ff83f-0bef-431c-a6c8-7fd2c7ee5fb6"}""")
+        assertEquals(0, changes.size)
+    }
+
+    /** A ping caught mid-frame by a closing server is still not a change. */
+    @Test
+    fun `a trailing ping is flushed and then ignored`() {
+        assertEquals(0, framesFrom("event: ping", """data: {"ping":1787318767374}""").size)
     }
 }

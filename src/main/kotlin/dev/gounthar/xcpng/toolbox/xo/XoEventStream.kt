@@ -230,26 +230,56 @@ internal class XoEventStream(
         val connection = openStream()
         val handle = currentCoroutineContext().job.invokeOnCompletion { connection.disconnect() }
         try {
-            val parser = SseParser()
             val reader = BufferedReader(InputStreamReader(connection.inputStream, Charsets.UTF_8))
-            var subscribed = false
-            while (currentCoroutineContext().isActive) {
-                val line = reader.readLine() ?: break
-                val frame = parser.accept(line) ?: continue
-                if (!subscribed && frame.name == "init") {
-                    // The subscription is a separate request against the connection id this frame
-                    // carries, and it has to happen before anything is delivered: a bare
-                    // connection is silent by design. Frames are not missed while it runs; they
-                    // queue in the socket buffer.
-                    subscribe(connectionIdOf(frame) ?: break)
-                    subscribed = true
-                    continue
-                }
-                XoChange.from(frame, json)?.let { emit(it) }
-            }
+            readFrames(reader::readLine, emit)
         } finally {
             handle.dispose()
             connection.disconnect()
+        }
+    }
+
+    /**
+     * The frame loop of one connection, with the socket reduced to a line source.
+     *
+     * Split out from [readOneConnection] so that the end-of-stream rule below is exercised by a
+     * test rather than asserted in a comment. Everything above this line needs a server; this
+     * needs a list of strings. [readLine] returns null at end of stream, exactly as
+     * `BufferedReader.readLine` does, which is the only thing this depends on.
+     *
+     * The `isActive` check stays on the loop and is not decoration. It is one of the two routes a
+     * cancelled collector takes out of here, and the one that exits *normally*, which is what lets
+     * [changes] tell a deliberate stop from a dropped stream instead of logging every hide of the
+     * provider page as a disconnection.
+     */
+    internal suspend fun readFrames(readLine: () -> String?, emit: suspend (XoChange) -> Unit) {
+        val parser = SseParser()
+        var subscribed = false
+        while (currentCoroutineContext().isActive) {
+            val line = readLine()
+            if (line == null) {
+                // End of stream, and the parser can still be holding a complete frame: a frame is
+                // terminated by a blank line, so a server that closes straight after a `data:`
+                // line leaves one buffered. XO always sends the blank line, which is why nothing
+                // was lost against XO directly, but a proxy in the middle is under nobody's
+                // control and this is one line.
+                //
+                // A trailing `init` cannot subscribe from here, and must not try: the connection
+                // it would name is already gone. XoChange.from returns null for it, so the frame
+                // is dropped rather than acted on, which is the behaviour that wants keeping.
+                parser.complete()?.let { tail -> XoChange.from(tail, json)?.let { emit(it) } }
+                break
+            }
+            val frame = parser.accept(line) ?: continue
+            if (!subscribed && frame.name == "init") {
+                // The subscription is a separate request against the connection id this frame
+                // carries, and it has to happen before anything is delivered: a bare
+                // connection is silent by design. Frames are not missed while it runs; they
+                // queue in the socket buffer.
+                subscribe(connectionIdOf(frame) ?: break)
+                subscribed = true
+                continue
+            }
+            XoChange.from(frame, json)?.let { emit(it) }
         }
     }
 
