@@ -121,6 +121,24 @@ internal fun nextAttempt(previous: Int, connectionLastedMillis: Long): Int =
     if (connectionLastedMillis >= STABLE_CONNECTION_MILLIS) 1 else previous + 1
 
 /**
+ * What to say when Xen Orchestra refuses a subscription.
+ *
+ * Pure so the wording is testable, for the same reason `xoFailureMessage` is: this string is the
+ * entire diagnosis for the failure that is hardest to recognise from the outside. A refused
+ * subscription leaves the connection open and silent, so the environment list simply stops
+ * updating, and nothing on screen distinguishes that from a pool where nothing is happening.
+ *
+ * The status alone was what this used to carry, and a bare `403` does not separate an expired
+ * token from a licence gate from a collection XO does not know. [body] is XO's own explanation,
+ * truncated because it can be an HTML error page from something in front of the appliance rather
+ * than the appliance itself.
+ */
+internal fun subscriptionFailureMessage(collection: String, status: Int, body: String): String {
+    val detail = body.trim().replace(Regex("\\s+"), " ").take(200).ifBlank { "no detail" }
+    return "subscribing to $collection returned $status: $detail"
+}
+
+/**
  * Xen Orchestra's server-sent events stream, as a cold [Flow] of object changes.
  *
  * **Why this exists:** without it the provider re-reads the whole pool only when its page becomes
@@ -254,8 +272,11 @@ internal class XoEventStream(
             )
             // A refused subscription leaves a connected but silent stream, which is the single
             // most confusing failure this class can have: it is indistinguishable from a quiet
-            // pool. Throwing sends it round the reconnect loop with the reason in the log.
-            require(response in 200..299) { "subscribing to $collection returned $response" }
+            // pool. Throwing sends it round the reconnect loop with the reason in the log, and the
+            // reason is XO's own words rather than a bare number.
+            require(response.status in 200..299) {
+                subscriptionFailureMessage(collection, response.status, response.body)
+            }
         }
     }
 
@@ -272,7 +293,10 @@ internal class XoEventStream(
             applyTlsPolicy()
         }
 
-    private fun post(path: String, body: String): Int {
+    /** Status plus, on a failure, whatever XO said about it. */
+    private data class PostResult(val status: Int, val body: String)
+
+    private fun post(path: String, body: String): PostResult {
         val connection = (URL(base + path).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 15_000
@@ -285,7 +309,18 @@ internal class XoEventStream(
         }
         return try {
             connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
-            connection.responseCode
+            val status = connection.responseCode
+            // Read only on a failure. The success body is not used by anything here, and this runs
+            // on every reconnect, so there is no reason to pull bytes nobody reads. On a 4xx or
+            // 5xx the body is on the error stream, which is where XO explains itself: the same
+            // rule XoRestClient.call already follows.
+            val explanation =
+                if (status >= 400) {
+                    connection.errorStream?.use { it.readBytes().toString(Charsets.UTF_8) }.orEmpty()
+                } else {
+                    ""
+                }
+            PostResult(status, explanation)
         } finally {
             connection.disconnect()
         }
