@@ -67,7 +67,7 @@ Toolbox plugin directory, and `./gradlew packagePlugin` builds the zip a release
 
 ## The one thing CI structurally cannot check
 
-**A change can compile, pass all 125 tests, and be wrong in the Toolbox UI.** That is not a
+**A change can compile, pass every test, and be wrong in the Toolbox UI.** That is not a
 worry, it is this project's most repeated failure. Pull request #6 renamed the provider, was
 reviewed, merged and recorded as done in two places, and the list still showed the old name on
 the next launch, because the plugin's name and the provider's name are two different strings.
@@ -108,6 +108,12 @@ launching it, and reading the log for the line that exercises all three at once.
 - Say what you actually verified and how, and say plainly what you did not. "Should work" is not
   a verification, and neither is a green tick from something that never ran.
 - End every text file with a newline.
+
+## Licensing
+
+This project is under the MIT license (see `LICENSE`). By contributing, you agree that your
+contributions are licensed under the same terms: inbound is the same as outbound. No separate
+agreement is needed.
 
 ## Filing an issue
 

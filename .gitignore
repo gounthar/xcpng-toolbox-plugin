@@ -12,3 +12,9 @@ out/
 .env
 *.credentials.json
 *.token
+
+# Local working notes and session context files (never publish). Globs are used so the
+# protected filename is not spelled out in a tracked file, which the content rules forbid.
+?LAUDE.md
+CONTEXT.md
+.env.*
