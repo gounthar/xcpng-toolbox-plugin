@@ -146,7 +146,10 @@ class XoRestClient(
     /**
      * `sync=true` is the important part. Without it XO answers 202 with a task reference and the
      * caller has to poll, which is exactly the loop XAPI forces on the Jenkins plugin. With it,
-     * the call returns when the work is done.
+     * the call returns when the work is done, as 204.
+     *
+     * A 202 despite `sync=true` is still tolerated rather than thrown: see [actionSucceeded] for
+     * what it means and why nothing here has to poll.
      */
     private suspend fun action(vm: XoVm, name: String) = withContext(Dispatchers.IO) {
         post("/vms/${vm.uuid}/actions/$name?sync=true").orThrow("$name on ${vm.uuid}")
@@ -202,7 +205,7 @@ class XoRestClient(
 
     /** Throw with XO's explanation when it gave one, the raw body when it did not. */
     private fun Response.orThrow(what: String) {
-        if (status in 200..204) return
+        if (actionSucceeded(status)) return
         error("$what returned $status: ${xoError() ?: body.take(200).ifBlank { "no detail" }}")
     }
 
@@ -210,6 +213,29 @@ class XoRestClient(
 
     private fun quote(s: String) = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 }
+
+/**
+ * Whether XO's answer to an action counts as "not a failure".
+ *
+ * The done answers are **200**, **201** and **204**. **202 is deliberately included here and it
+ * does not mean done**: it means XO queued the work despite `?sync=true` and the task is still
+ * running. It used to be accepted by a bare `200..204` range, which said nothing about whether
+ * that was intended, inside a method called `orThrow`.
+ *
+ * It is accepted, and the reason is a property of the caller rather than of the status. Every
+ * action this plugin issues is followed by `XcpngVmEnvironment.refreshSelf()`, which re-reads the
+ * VM from the pool and republishes its real power state, and which runs before any failure is
+ * reported. So a queued action corrects itself on the next read, and the worst case is a row that
+ * looks settled for the moment it takes the pool to catch up. Throwing instead would report a
+ * failure for an action XO accepted and is about to carry out, which is the worse of the two
+ * wrong answers: one is briefly stale, the other is a popup saying something broke when nothing
+ * did.
+ *
+ * 203 is not on the list. The old range accepted it by accident rather than by decision; XO does
+ * not send it, and a status nobody has ever seen should not be pre-approved.
+ */
+internal fun actionSucceeded(status: Int): Boolean =
+    status == 200 || status == 201 || status == 202 || status == 204
 
 /**
  * One string field, or null for anything that is not usable as one.
