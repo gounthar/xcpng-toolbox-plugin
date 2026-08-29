@@ -93,6 +93,22 @@ private const val STABLE_CONNECTION_MILLIS = 60_000L
 private const val READ_TIMEOUT_MILLIS = 95_000
 
 /**
+ * How much of a failure body to read before giving up on it.
+ *
+ * [subscriptionFailureMessage] keeps 200 characters, so everything past this is read and thrown
+ * away. Reading the whole stream to then discard nearly all of it is the part worth avoiding: this
+ * runs on **every reconnect**, and the body on the other end is not necessarily XO's small JSON
+ * error object. A proxy or a load balancer in front of the appliance answers failures with an HTML
+ * page, and nothing in the protocol bounds how large that is, so an unbounded `readBytes()` here is
+ * an allocation sized by whatever the far end decided to send, repeated on a retry loop.
+ *
+ * 8 KiB is far more than the message can use and small enough to be uninteresting. Reading a byte
+ * prefix can split a multi-byte character at the boundary, which yields one replacement character
+ * at the very end of a string that is about to be cut to 200 characters anyway.
+ */
+private const val ERROR_BODY_PREFIX_BYTES = 8 * 1024
+
+/**
  * The delay before reconnect attempt [attempt], capped.
  *
  * Exponential from one second to thirty, which is the same order as XO's keepalive: reconnecting
@@ -119,6 +135,24 @@ internal fun reconnectDelayMillis(attempt: Int): Long {
  */
 internal fun nextAttempt(previous: Int, connectionLastedMillis: Long): Int =
     if (connectionLastedMillis >= STABLE_CONNECTION_MILLIS) 1 else previous + 1
+
+/**
+ * What to say when Xen Orchestra refuses a subscription.
+ *
+ * Pure so the wording is testable, for the same reason `xoFailureMessage` is: this string is the
+ * entire diagnosis for the failure that is hardest to recognise from the outside. A refused
+ * subscription leaves the connection open and silent, so the environment list simply stops
+ * updating, and nothing on screen distinguishes that from a pool where nothing is happening.
+ *
+ * The status alone was what this used to carry, and a bare `403` does not separate an expired
+ * token from a licence gate from a collection XO does not know. [body] is XO's own explanation,
+ * truncated because it can be an HTML error page from something in front of the appliance rather
+ * than the appliance itself.
+ */
+internal fun subscriptionFailureMessage(collection: String, status: Int, body: String): String {
+    val detail = body.trim().replace(Regex("\\s+"), " ").take(200).ifBlank { "no detail" }
+    return "subscribing to $collection returned $status: $detail"
+}
 
 /**
  * Xen Orchestra's server-sent events stream, as a cold [Flow] of object changes.
@@ -212,26 +246,56 @@ internal class XoEventStream(
         val connection = openStream()
         val handle = currentCoroutineContext().job.invokeOnCompletion { connection.disconnect() }
         try {
-            val parser = SseParser()
             val reader = BufferedReader(InputStreamReader(connection.inputStream, Charsets.UTF_8))
-            var subscribed = false
-            while (currentCoroutineContext().isActive) {
-                val line = reader.readLine() ?: break
-                val frame = parser.accept(line) ?: continue
-                if (!subscribed && frame.name == "init") {
-                    // The subscription is a separate request against the connection id this frame
-                    // carries, and it has to happen before anything is delivered: a bare
-                    // connection is silent by design. Frames are not missed while it runs; they
-                    // queue in the socket buffer.
-                    subscribe(connectionIdOf(frame) ?: break)
-                    subscribed = true
-                    continue
-                }
-                XoChange.from(frame, json)?.let { emit(it) }
-            }
+            readFrames(reader::readLine, emit)
         } finally {
             handle.dispose()
             connection.disconnect()
+        }
+    }
+
+    /**
+     * The frame loop of one connection, with the socket reduced to a line source.
+     *
+     * Split out from [readOneConnection] so that the end-of-stream rule below is exercised by a
+     * test rather than asserted in a comment. Everything above this line needs a server; this
+     * needs a list of strings. [readLine] returns null at end of stream, exactly as
+     * `BufferedReader.readLine` does, which is the only thing this depends on.
+     *
+     * The `isActive` check stays on the loop and is not decoration. It is one of the two routes a
+     * cancelled collector takes out of here, and the one that exits *normally*, which is what lets
+     * [changes] tell a deliberate stop from a dropped stream instead of logging every hide of the
+     * provider page as a disconnection.
+     */
+    internal suspend fun readFrames(readLine: () -> String?, emit: suspend (XoChange) -> Unit) {
+        val parser = SseParser()
+        var subscribed = false
+        while (currentCoroutineContext().isActive) {
+            val line = readLine()
+            if (line == null) {
+                // End of stream, and the parser can still be holding a complete frame: a frame is
+                // terminated by a blank line, so a server that closes straight after a `data:`
+                // line leaves one buffered. XO always sends the blank line, which is why nothing
+                // was lost against XO directly, but a proxy in the middle is under nobody's
+                // control and this is one line.
+                //
+                // A trailing `init` cannot subscribe from here, and must not try: the connection
+                // it would name is already gone. XoChange.from returns null for it, so the frame
+                // is dropped rather than acted on, which is the behaviour that wants keeping.
+                parser.complete()?.let { tail -> XoChange.from(tail, json)?.let { emit(it) } }
+                break
+            }
+            val frame = parser.accept(line) ?: continue
+            if (!subscribed && frame.name == "init") {
+                // The subscription is a separate request against the connection id this frame
+                // carries, and it has to happen before anything is delivered: a bare
+                // connection is silent by design. Frames are not missed while it runs; they
+                // queue in the socket buffer.
+                subscribe(connectionIdOf(frame) ?: break)
+                subscribed = true
+                continue
+            }
+            XoChange.from(frame, json)?.let { emit(it) }
         }
     }
 
@@ -254,8 +318,11 @@ internal class XoEventStream(
             )
             // A refused subscription leaves a connected but silent stream, which is the single
             // most confusing failure this class can have: it is indistinguishable from a quiet
-            // pool. Throwing sends it round the reconnect loop with the reason in the log.
-            require(response in 200..299) { "subscribing to $collection returned $response" }
+            // pool. Throwing sends it round the reconnect loop with the reason in the log, and the
+            // reason is XO's own words rather than a bare number.
+            require(response.status in 200..299) {
+                subscriptionFailureMessage(collection, response.status, response.body)
+            }
         }
     }
 
@@ -272,7 +339,10 @@ internal class XoEventStream(
             applyTlsPolicy()
         }
 
-    private fun post(path: String, body: String): Int {
+    /** Status plus, on a failure, whatever XO said about it. */
+    private data class PostResult(val status: Int, val body: String)
+
+    private fun post(path: String, body: String): PostResult {
         val connection = (URL(base + path).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 15_000
@@ -285,7 +355,20 @@ internal class XoEventStream(
         }
         return try {
             connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
-            connection.responseCode
+            val status = connection.responseCode
+            // Read only on a failure. The success body is not used by anything here, and this runs
+            // on every reconnect, so there is no reason to pull bytes nobody reads. On a 4xx or
+            // 5xx the body is on the error stream, which is where XO explains itself: the same
+            // rule XoRestClient.call already follows.
+            val explanation =
+                if (status >= 400) {
+                    connection.errorStream
+                        ?.use { it.readNBytes(ERROR_BODY_PREFIX_BYTES).toString(Charsets.UTF_8) }
+                        .orEmpty()
+                } else {
+                    ""
+                }
+            PostResult(status, explanation)
         } finally {
             connection.disconnect()
         }

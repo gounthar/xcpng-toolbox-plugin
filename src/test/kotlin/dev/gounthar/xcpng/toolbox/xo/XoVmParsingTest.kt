@@ -99,13 +99,37 @@ class XoVmParsingTest {
     }
 
     /**
-     * `xentools` is declared in XO's schema and was returned on 0 of 10 VMs here, so the fallback
-     * is close to dead code, but it is the documented field, so it stays covered.
+     * The fixture that used to live here was the reason a dead branch looked covered.
+     *
+     * It fed `"xentools": "7.20"`, a lowercase key holding a string, which is exactly the shape
+     * the old fallback read and exactly the shape the appliance never sends. Test and code agreed
+     * with each other while both disagreed with production, so the coverage was real and the thing
+     * covered was not.
+     *
+     * What REST actually returns on a guest with the tools, measured 2026-08-19: the key is
+     * **`xenTools`** and the value is an **object**. Pinned here in its real shape so that anyone
+     * reinstating the field as a second signal starts from the payload rather than from the
+     * OpenAPI document, which declares it a string and is wrong.
      */
     @Test
-    fun `xentools is the fallback when os_version is absent entirely`() {
+    fun `xenTools is not consulted, and its real shape is an object rather than a string`() {
+        val vm = parse(
+            """
+            {
+              "uuid": "u",
+              "power_state": "Running",
+              "xenTools": { "major": 7, "minor": 30, "version": 7.3 }
+            }
+            """,
+        )
+        assertNull(vm.guestIsReporting, "os_version is the only signal; xenTools is not read")
+    }
+
+    /** And the old lowercase string shape must not resurrect the fallback either. */
+    @Test
+    fun `a lowercase xentools string is ignored`() {
         val vm = parse("""{ "uuid": "u", "power_state": "Running", "xentools": "7.20" }""")
-        assertEquals(true, vm.guestIsReporting)
+        assertNull(vm.guestIsReporting)
     }
 
     @Test

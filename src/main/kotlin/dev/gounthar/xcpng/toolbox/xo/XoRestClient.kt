@@ -43,17 +43,20 @@ class XoRestClient(
     /**
      * Fields XO should return. Asking for a subset keeps the payload small.
      *
-     * `os_version` is here as the guest-reporting signal, and that is measured rather than
-     * assumed: across the ten VMs on the lab pool it was non-empty on 5/5 of those reporting a
-     * `mainIpAddress` and empty on 0/5 of those not. `xentools` managed only 1/5, and
-     * `pvDriversDetected` was true on 3/5 VMs that reported **no** address, so PV drivers are not
-     * the same question as "is the guest talking to us".
+     * `os_version` is the guest-reporting signal, and that is measured rather than assumed: across
+     * the ten VMs on the lab pool it was non-empty on 5/5 of those reporting a `mainIpAddress` and
+     * empty on 0/5 of those not. `pvDriversDetected` was true on 3/5 VMs that reported **no**
+     * address, so PV drivers are not the same question as "is the guest talking to us".
      *
-     * Casing trap: the REST schema spells it `xentools`, the JSON-RPC objects returned by
-     * `xo-cli list-objects` spell it `xenTools`. Same concept, two surfaces, different casing.
-     * This client talks REST, so `xentools` is right here; do not "correct" it from xo-cli output.
+     * **`xentools` is deliberately not requested, and the reason corrects what this comment used
+     * to say.** It claimed the REST schema spells the field `xentools` and that only the JSON-RPC
+     * surface spells it `xenTools`. Measured on a guest that has the tools, 2026-08-19: REST
+     * returns **`xenTools`**, camelCase, and returns it as an **object**
+     * (`{"major": 7, "minor": 30, "version": 7.3}`) rather than the string its own OpenAPI document
+     * declares. So the old field name was never returned and the old string read could never have
+     * matched one. `os_version` was doing all the work; it now does it alone.
      */
-    private val vmFields = "uuid,name_label,power_state,mainIpAddress,os_version,xentools"
+    private val vmFields = "uuid,name_label,power_state,mainIpAddress,os_version"
 
     /** `$snapshot_of` is the parent VM, and it is what makes a snapshot list per-VM. */
     private val snapshotFields = "id,uuid,name_label,snapshot_time,\$snapshot_of"
@@ -143,7 +146,10 @@ class XoRestClient(
     /**
      * `sync=true` is the important part. Without it XO answers 202 with a task reference and the
      * caller has to poll, which is exactly the loop XAPI forces on the Jenkins plugin. With it,
-     * the call returns when the work is done.
+     * the call returns when the work is done, as 204.
+     *
+     * A 202 despite `sync=true` is still tolerated rather than thrown: see [actionSucceeded] for
+     * what it means and why nothing here has to poll.
      */
     private suspend fun action(vm: XoVm, name: String) = withContext(Dispatchers.IO) {
         post("/vms/${vm.uuid}/actions/$name?sync=true").orThrow("$name on ${vm.uuid}")
@@ -199,7 +205,7 @@ class XoRestClient(
 
     /** Throw with XO's explanation when it gave one, the raw body when it did not. */
     private fun Response.orThrow(what: String) {
-        if (status in 200..204) return
+        if (actionSucceeded(status)) return
         error("$what returned $status: ${xoError() ?: body.take(200).ifBlank { "no detail" }}")
     }
 
@@ -207,6 +213,29 @@ class XoRestClient(
 
     private fun quote(s: String) = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 }
+
+/**
+ * Whether XO's answer to an action counts as "not a failure".
+ *
+ * The done answers are **200**, **201** and **204**. **202 is deliberately included here and it
+ * does not mean done**: it means XO queued the work despite `?sync=true` and the task is still
+ * running. It used to be accepted by a bare `200..204` range, which said nothing about whether
+ * that was intended, inside a method called `orThrow`.
+ *
+ * It is accepted, and the reason is a property of the caller rather than of the status. Every
+ * action this plugin issues is followed by `XcpngVmEnvironment.refreshSelf()`, which re-reads the
+ * VM from the pool and republishes its real power state, and which runs before any failure is
+ * reported. So a queued action corrects itself on the next read, and the worst case is a row that
+ * looks settled for the moment it takes the pool to catch up. Throwing instead would report a
+ * failure for an action XO accepted and is about to carry out, which is the worse of the two
+ * wrong answers: one is briefly stale, the other is a popup saying something broke when nothing
+ * did.
+ *
+ * 203 is not on the list. The old range accepted it by accident rather than by decision; XO does
+ * not send it, and a status nobody has ever seen should not be pre-approved.
+ */
+internal fun actionSucceeded(status: Int): Boolean =
+    status == 200 || status == 201 || status == 202 || status == 204
 
 /**
  * One string field, or null for anything that is not usable as one.
@@ -250,8 +279,9 @@ internal fun JsonObject.toXoVm(): XoVm = XoVm(
     // known address rather than a live one. Handing a halted VM's cached address to an IDE as an
     // SSH target would look like a working connection and fail.
     mainIpAddress = str("mainIpAddress")?.takeIf { str("power_state") == "Running" },
-    // A non-empty os_version means the guest is reporting, which is what actually matters. See
-    // the note on vmFields for why this beats xentools. Both are read; os_version decides.
-    guestIsReporting = (this["os_version"] as? JsonObject)?.isNotEmpty()
-        ?: str("xentools")?.isNotBlank(),
+    // A non-empty os_version means the guest is reporting, which is what actually matters, and it
+    // is the only signal read: see the note on vmFields for the xenTools casing and type trap that
+    // made the old fallback unreachable. Absent stays null, because "XO did not send the field" is
+    // a different answer from "the guest is silent".
+    guestIsReporting = (this["os_version"] as? JsonObject)?.isNotEmpty(),
 )
