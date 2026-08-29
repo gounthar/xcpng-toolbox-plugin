@@ -471,8 +471,14 @@ class XcpngVmEnvironment(
          * The action menu is built from the power state of the **last refresh**, so a VM that
          * changed state since then still offers the verb for the state it used to be in. Clicking
          * it is not a fault and not a bug in either the plugin or the pool: it is two things
-         * happening at once, and the row corrects itself, because `refreshSelf` re-reads from the
-         * pool before this message is ever shown.
+         * happening at once, and the action was refused rather than half-applied.
+         *
+         * **The wording asserts only what the code proves.** It said "it has been re-read from
+         * the pool" until review pointed out that `refreshSelf` swallows a failed read and puts
+         * the cached state back, so on a pool that has gone away the sentence was false in the
+         * one place a reader had no way to check it. What `VM_BAD_POWER_STATE` does prove is that
+         * XAPI refused, and therefore that nothing changed, which is also the reassurance a
+         * destructive button most owes its reader.
          *
          * Keyed on the XAPI code rather than on the sentence around it, on the same grounds as
          * `xoFailureMessage`'s `featureCode` discriminator: XO passes the raw code through, and
@@ -492,9 +498,12 @@ class XcpngVmEnvironment(
          * the identical race.
          */
         internal fun staleRowHint(detail: String): String? =
-            // Parenthesised deliberately: `.takeIf` binds to the literal it follows, so without
-            // these the hint is never null and reads "... re-read from null".
-            ("The VM is no longer in the state this list showed. It has been re-read from the pool.")
+            // Parenthesised deliberately: `.takeIf` binds only to the literal it follows, so
+            // without these the concatenation swallows a null tail and the hint is never null,
+            // reading "The VM is no longer in the state this list showed, so the pool refused
+            // the null" on every failure that is not this one.
+            ("The VM is no longer in the state this list showed, so the pool refused the " +
+                "action and nothing was changed.")
                 .takeIf { "VM_BAD_POWER_STATE" in detail }
 
         /**

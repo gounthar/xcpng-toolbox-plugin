@@ -44,7 +44,8 @@ class PowerActionHintTest {
         // failure path was exercised, so the reader got the XAPI code and nothing else.
         assertNotNull(hint, "force shut down on an already-halted VM must be explained")
         assertEquals(
-            "The VM is no longer in the state this list showed. It has been re-read from the pool.",
+            "The VM is no longer in the state this list showed, so the pool refused the action and " +
+                "nothing was changed.",
             hint,
         )
     }
@@ -52,7 +53,8 @@ class PowerActionHintTest {
     @Test
     fun `a clean shut down that lost the race gets the same explanation`() {
         assertEquals(
-            "The VM is no longer in the state this list showed. It has been re-read from the pool.",
+            "The VM is no longer in the state this list showed, so the pool refused the action and " +
+                "nothing was changed.",
             cleanShutdownHint(cleanShutdownOnHalted),
         )
     }
