@@ -93,6 +93,22 @@ private const val STABLE_CONNECTION_MILLIS = 60_000L
 private const val READ_TIMEOUT_MILLIS = 95_000
 
 /**
+ * How much of a failure body to read before giving up on it.
+ *
+ * [subscriptionFailureMessage] keeps 200 characters, so everything past this is read and thrown
+ * away. Reading the whole stream to then discard nearly all of it is the part worth avoiding: this
+ * runs on **every reconnect**, and the body on the other end is not necessarily XO's small JSON
+ * error object. A proxy or a load balancer in front of the appliance answers failures with an HTML
+ * page, and nothing in the protocol bounds how large that is, so an unbounded `readBytes()` here is
+ * an allocation sized by whatever the far end decided to send, repeated on a retry loop.
+ *
+ * 8 KiB is far more than the message can use and small enough to be uninteresting. Reading a byte
+ * prefix can split a multi-byte character at the boundary, which yields one replacement character
+ * at the very end of a string that is about to be cut to 200 characters anyway.
+ */
+private const val ERROR_BODY_PREFIX_BYTES = 8 * 1024
+
+/**
  * The delay before reconnect attempt [attempt], capped.
  *
  * Exponential from one second to thirty, which is the same order as XO's keepalive: reconnecting
@@ -346,7 +362,9 @@ internal class XoEventStream(
             // rule XoRestClient.call already follows.
             val explanation =
                 if (status >= 400) {
-                    connection.errorStream?.use { it.readBytes().toString(Charsets.UTF_8) }.orEmpty()
+                    connection.errorStream
+                        ?.use { it.readNBytes(ERROR_BODY_PREFIX_BYTES).toString(Charsets.UTF_8) }
+                        .orEmpty()
                 } else {
                     ""
                 }

@@ -74,6 +74,22 @@ class SubscriptionFailureMessageTest {
         assertTrue(message.contains("<html> <body> nope"), message)
     }
 
+    /**
+     * The message truncates, and separately the read that feeds it is bounded.
+     *
+     * These are two different limits and the first does not imply the second, which is what a
+     * CodeRabbit finding on #44 pointed out and it was right: the body used to be pulled in whole
+     * by readBytes() and then cut to 200 characters, so the allocation was sized by whatever the
+     * far end sent, on a path that runs on every reconnect. The read now stops at
+     * ERROR_BODY_PREFIX_BYTES. This test covers the message half; the read half is a private
+     * constant on the transport and is documented at its declaration.
+     */
+    @Test
+    fun `the message limit is not what bounds the read`() {
+        val message = subscriptionFailureMessage("VM", 502, "y".repeat(100_000))
+        assertTrue(message.length < 260, "message was ${message.length} chars")
+    }
+
     /** The collection is named, because two subscriptions share one connection. */
     @Test
     fun `the collection that was refused is named`() {
