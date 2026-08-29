@@ -89,6 +89,32 @@ verbs respect it. Four measured warnings if you set one up:
   tag-based scope after their snapshots exist sees the VM but not its history. Nothing this plugin
   can fix from its side.
 
+## What reaches the log
+
+The token never does. The only line that goes near it records whether one was typed, as a boolean:
+
+```kotlin
+"XCP-ng: test attempt url=<...> stored=<...> typedToken=${attempt.typedToken != null} ..."
+```
+
+What the log does contain, at INFO and WARN:
+
+- **The Xen Orchestra base URL**, on every refresh, on a stream drop and on a connection test.
+- **VM UUIDs**, on a connect, a snapshot, a revert and any failed action.
+- **The resolved SSH endpoint**, as `user@host:port`, on every connect.
+- **Snapshot names and ids**, including the name typed into the snapshot dialog.
+- **A warning naming no value** when the token was read from the plaintext `settings.json`
+  fallback rather than from the keychain.
+- **Xen Orchestra's own error text** when a call fails, which is XO's message rather than anything
+  this plugin composes.
+
+VM name labels are not logged. Neither is anything read out of the guest.
+
+None of that is a credential, but the third line is worth a moment: a username, a host and a port
+together describe how to reach a developer's machine, and Toolbox's log is an ordinary file on
+disk. If that matters where you work, it is a reason to keep the log rather than a reason to fear
+it, but it should be a decision rather than a surprise.
+
 ## Accept a self-signed certificate
 
 The settings page has a checkbox for it, and XOA ships a self-signed certificate, so on a lab
@@ -109,7 +135,8 @@ something worth stopping for. On a pool with a certificate your machine trusts, 
 ## Scope
 
 In scope: this plugin's handling of the token, the endpoint it resolves and hands to Toolbox,
-and what it writes to disk or to the log.
+and what it writes to disk or to the log. What reaches the log is listed above rather than left
+for you to take on trust.
 
 Out of scope: Xen Orchestra, XCP-ng, JetBrains Toolbox, and anything reachable only by someone
 who already has the machine or the keychain.
