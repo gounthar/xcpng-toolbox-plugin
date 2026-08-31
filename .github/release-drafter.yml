@@ -91,3 +91,51 @@ template: |
   install while it runs can be clobbered. Note the path is the **cache** directory, not
   `.../Toolbox/plugins`, which is where plugins keep their settings and where Toolbox will
   never look for code.
+
+# Labels applied to a pull request from its own title, so the categories and the version
+# resolver above have something to read.
+#
+# This closes a gap the comment at the top of this file describes but does nothing about: the
+# configuration is label-driven while the repository writes conventional commits strictly, so
+# every categorisation and every version bump depended on somebody remembering to label. They
+# did not. Measured 2026-08-29 over the twelve most recently merged pull requests: six carried
+# no label at all, among them #31 (a feature), #37, #44, #45 and #47. Those five are the whole
+# of the work merged that day, and the open draft said "No user-visible changes".
+#
+# The patterns match the conventional-commit type at the start of the title, which is already
+# enforced socially here and is the same string the commit carries. Scope is optional and a `!`
+# is tolerated, because `fix(xo)!:` is still a fix.
+#
+# Order matters for exactly one entry. `breaking` is first and matches ANY type carrying `!`,
+# so `feat!:` resolves major rather than the minor its type alone would give. Release Drafter
+# takes the highest increment among matching resolver entries, so the two labels coexisting on
+# one pull request is the intended outcome rather than a conflict.
+#
+# Types with no entry (chore, refactor, style, test, perf) are deliberate: they have no label
+# here to map onto, and the trailing no-`when` version resolver already lands them on patch.
+# Adding categories for them would put housekeeping in front of a reader looking for what
+# changed.
+autolabeler:
+  - label: breaking
+    title:
+      - '/^\w+(\([^)]*\))?!:/'
+  - label: bug
+    title:
+      - '/^fix(\([^)]*\))?!?:/'
+  - label: enhancement
+    title:
+      - '/^feat(\([^)]*\))?!?:/'
+  - label: documentation
+    title:
+      - '/^docs(\([^)]*\))?!?:/'
+  - label: build
+    title:
+      - '/^build(\([^)]*\))?!?:/'
+  - label: ci
+    title:
+      - '/^ci(\([^)]*\))?!?:/'
+  # Dependabot labels its own pull requests, but a hand-written dependency bump is the case
+  # this catches, and a second identical label is a no-op.
+  - label: dependencies
+    title:
+      - '/^(chore|build)\(deps[^)]*\)!?:/'

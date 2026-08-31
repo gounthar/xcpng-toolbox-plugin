@@ -1,0 +1,51 @@
+# Labels a pull request from its title, so release-drafter.yml has something to read.
+#
+# It exists because the drafter is label-driven while this repository writes conventional
+# commits, and nothing bridged the two. Measured 2026-08-29 over the twelve most recently
+# merged pull requests: six carried no label at all, and the open draft consequently said
+# "No user-visible changes" after a day of merges. The patterns live beside the categories
+# they feed, in .github/release-drafter.yml.
+#
+# Separate from release-drafter.yml because in Release Drafter v7 the autolabeler is a
+# separate action, `release-drafter/release-drafter/autolabeler@v7`. It was one action with
+# `disable-releaser` and `disable-autolabeler` inputs in v6 and those inputs are GONE in v7,
+# so the v6 arrangement does not fail on v7: an undeclared input is silently ignored, the
+# releaser and the labeler both run on every trigger, and nothing anywhere says so. Checked
+# against each tag's own action.yml rather than against the documentation.
+---
+name: autolabeler
+
+on:
+  # `pull_request` rather than `pull_request_target`. It is the weaker of the two: a fork's
+  # token is read-only, so a first-time outside contribution will not get labelled and has to
+  # be labelled by hand. That is accepted deliberately. `pull_request_target` runs with a write
+  # token in the base repository's context, and the entire class of exploit against it starts
+  # with a workflow that can be talked into touching the pull request's code. This repository
+  # has essentially one author plus dependabot, whose pull requests are not from a fork, so the
+  # stronger trigger would buy almost nothing and carry a standing risk.
+  #
+  # `edited` is included because a title is routinely fixed after opening, and the label should
+  # follow the title rather than record the first guess.
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - edited
+
+permissions:
+  contents: read
+
+jobs:
+  label:
+    name: label the pull request from its title
+    runs-on: ubuntu-latest
+    permissions:
+      # Writing labels onto the pull request, and nothing else. Note this job never checks the
+      # pull request out: it reads the title through the API. Adding a checkout here would be
+      # the first half of the mistake the trigger comment above describes.
+      pull-requests: write
+    steps:
+      - uses: release-drafter/release-drafter/autolabeler@v7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
