@@ -2,7 +2,9 @@
 # and computing the next version from their labels. It never publishes: a human does that,
 # and that press creates the tag, which fires release.yml to build and attach the zip.
 #
-# Configuration lives in .github/release-drafter.yml.
+# The labels it reads are applied by autolabeler.yml, which is a separate workflow because in
+# Release Drafter v7 the autolabeler is a separate action. Configuration for both lives in the
+# one file, .github/release-drafter.yml.
 ---
 name: release-drafter
 
