@@ -189,13 +189,7 @@ class XcpngVmEnvironment(
                 // Also measured: clicking Start on a VM that somebody else already started gives
                 // VM_BAD_POWER_STATE(ref, expected, actual). The list is only as fresh as the last
                 // refresh, so this is an ordinary race rather than a fault.
-                hint = { detail ->
-                    // Parenthesised deliberately: `.takeIf` binds to the literal it follows, so
-                    // without these the hint is never null and reads "... re-read from null".
-                    ("The VM is no longer in the state this list showed. It has been re-read from " +
-                        "the pool.")
-                        .takeIf { "VM_BAD_POWER_STATE" in detail }
-                },
+                hint = { detail -> staleRowHint(detail) },
             ) { client -> verb(client, vm) }
         }
 
@@ -206,11 +200,7 @@ class XcpngVmEnvironment(
                 // Measured against alpine-test-3 on 2026-08-19: XO answers 500 with the raw XAPI
                 // code and nothing a user can act on. The code is the whole diagnosis, so say what
                 // it means and what to click instead.
-                hint = { detail ->
-                    ("The guest has no XCP-ng agent listening, so it cannot be asked to shut itself " +
-                        "down. Use \"Force shut down\" instead.")
-                        .takeIf { "VM_LACKS_FEATURE" in detail }
-                },
+                hint = { detail -> cleanShutdownHint(detail) },
             ) { client -> client.cleanShutdown(vm) }
             // Not an advanced extra. `clean_shutdown` asks the guest to shut itself down and
             // fails when nothing is listening, and on the lab pool only 1 of 4 running VMs was
@@ -221,6 +211,11 @@ class XcpngVmEnvironment(
                 dangerous = true,
                 confirm = "Cut the power to \"${vm.nameLabel}\"? The guest gets no chance to " +
                     "flush anything to disk. Use this when a clean shut down has failed.",
+                // This button had no hint until its failure path was finally exercised on
+                // 2026-08-29, and it races exactly like the others: the menu offers it because
+                // the last refresh saw the VM running, so anything that halts it in between
+                // turns the click into VM_BAD_POWER_STATE.
+                hint = { detail -> staleRowHint(detail) },
             ) { client -> client.hardShutdown(vm) }
         }
 
@@ -232,7 +227,13 @@ class XcpngVmEnvironment(
     }
 
     /** Take a snapshot, naming it. Offered in every state; XO snapshots a running VM happily. */
-    private fun snapshotAction(): ActionDescription = action("Take snapshot…", busyState = null) { client ->
+    private fun snapshotAction(): ActionDescription = action(
+        "Take snapshot…",
+        busyState = null,
+        // No hint: XO snapshots a VM in any power state, so there is no wrong-state race to
+        // explain here, and a failure is a genuine one worth reading verbatim.
+        hint = { null },
+    ) { client ->
         val typed = ui.showTextInputPopup(
             i18n.ptrl("Take a snapshot"),
             i18n.pnotr("Snapshot \"${vm.nameLabel}\"."),
@@ -264,6 +265,9 @@ class XcpngVmEnvironment(
         "Revert to snapshot…",
         busyState = null,
         dangerous = true,
+        // No hint: revert is answered per snapshot rather than per power state (a snapshot that
+        // does not belong to the VM is a 422 naming that), so none of the power codes reach here.
+        hint = { null },
     ) { client ->
         val snapshots = client.listSnapshots(vm)
         if (snapshots.isEmpty()) {
@@ -297,7 +301,12 @@ class XcpngVmEnvironment(
      * it is still switched off.
      */
     private fun connectionSettingsAction(): ActionDescription =
-        action("Connection settings\u2026", busyState = null) {
+        action(
+            "Connection settings\u2026",
+            busyState = null,
+            // No hint: this opens a local page and never calls the pool, so it has no XO failure.
+            hint = { null },
+        ) {
             ui.showUiPageSuspending(
                 ConnectionSettingsPage(
                     vm,
@@ -328,8 +337,17 @@ class XcpngVmEnvironment(
          *
          * Takes the detail rather than being a fixed string so it can fire only for the code it
          * explains. A hint that appears under every failure teaches people to ignore hints.
+         *
+         * **Deliberately has no default, and that is the fix for a real defect rather than a
+         * matter of taste.** It defaulted to `{ null }` until 2026-08-29, and "Force shut down"
+         * was declared without it: a power verb that races exactly like the two either side of it
+         * showed the reader raw XAPI text, and nothing anywhere said so. The omission was
+         * invisible at the call site, invisible in review, and invisible to the test suite, which
+         * is the combination that lets a defect sit. Requiring the argument does not make anyone
+         * write a better hint; it makes "this failure needs no explanation" a decision somebody
+         * typed, which is the same move as `blockerFor` returning a reason rather than a boolean.
          */
-        hint: (String) -> String? = { null },
+        hint: (String) -> String?,
         block: suspend (XoClient) -> Unit,
     ): ActionDescription = object : RunnableActionDescription {
         override val label: LocalizableString = i18n.ptrl(label)
@@ -447,6 +465,65 @@ class XcpngVmEnvironment(
     private class Description(override val description: LocalizableString) : EnvironmentDescription
 
     companion object {
+        /**
+         * The stale-row race, which every power verb can lose.
+         *
+         * The action menu is built from the power state of the **last refresh**, so a VM that
+         * changed state since then still offers the verb for the state it used to be in. Clicking
+         * it is not a fault and not a bug in either the plugin or the pool: it is two things
+         * happening at once, and the action was refused rather than half-applied.
+         *
+         * **The wording asserts only what the code proves.** It said "it has been re-read from
+         * the pool" until review pointed out that `refreshSelf` swallows a failed read and puts
+         * the cached state back, so on a pool that has gone away the sentence was false in the
+         * one place a reader had no way to check it. What `VM_BAD_POWER_STATE` does prove is that
+         * XAPI refused, and therefore that nothing changed, which is also the reassurance a
+         * destructive button most owes its reader.
+         *
+         * Keyed on the XAPI code rather than on the sentence around it, on the same grounds as
+         * `xoFailureMessage`'s `featureCode` discriminator: XO passes the raw code through, and
+         * the code is the part that cannot be reworded underneath us.
+         *
+         * Measured 2026-08-29 against the lab pool, one call per verb, each aimed at a VM in the
+         * wrong power state so nothing could change whichever way it went. All three answer 500,
+         * and note the argument list is (ref, ...every acceptable state..., actual) rather than a
+         * pair, which is why nothing here tries to parse the states out of it:
+         *
+         * - `hard_shutdown` on a halted VM: `VM_BAD_POWER_STATE(ref, paused, suspended, running, halted)`
+         * - `clean_shutdown` on a halted VM: `VM_BAD_POWER_STATE(ref, running, halted)`
+         * - `start` on a running VM: `VM_BAD_POWER_STATE(ref, halted, running)`
+         *
+         * Until that measurement only Start explained this, because Start was the only verb whose
+         * failure path anybody had run. Both shutdown buttons showed the reader raw XAPI text for
+         * the identical race.
+         */
+        internal fun staleRowHint(detail: String): String? =
+            // Parenthesised deliberately: `.takeIf` binds only to the literal it follows, so
+            // without these the concatenation swallows a null tail and the hint is never null,
+            // reading "The VM is no longer in the state this list showed, so the pool refused
+            // the null" on every failure that is not this one.
+            ("The VM is no longer in the state this list showed, so the pool refused the " +
+                "action and nothing was changed.")
+                .takeIf { "VM_BAD_POWER_STATE" in detail }
+
+        /**
+         * The clean shutdown button, which can fail two ways that need opposite advice.
+         *
+         * `VM_LACKS_FEATURE` means the guest is running and cannot be *asked* to stop, so the
+         * answer is to cut the power instead. [staleRowHint]'s case means the VM is not running at
+         * all, where telling somebody to force it off would be advice to do nothing, on a
+         * destructive button. So the order is load-bearing rather than stylistic: they are checked
+         * against distinct codes and can never both match, but writing them in one place is what
+         * keeps the wrong one from being offered if that ever stops being true.
+         */
+        internal fun cleanShutdownHint(detail: String): String? = when {
+            "VM_LACKS_FEATURE" in detail ->
+                "The guest has no XCP-ng agent listening, so it cannot be asked to shut itself " +
+                    "down. Use \"Force shut down\" instead."
+
+            else -> staleRowHint(detail)
+        }
+
         /**
          * Why this VM cannot be connected to yet, or null when it can.
          *
