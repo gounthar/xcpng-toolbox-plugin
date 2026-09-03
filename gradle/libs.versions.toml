@@ -10,7 +10,7 @@
 # only thing that works.
 # Re-check with:
 #   curl -s https://packages.jetbrains.team/maven/p/tbx/toolbox-api/com/jetbrains/toolbox/remote-dev-api/maven-metadata.xml | grep release
-toolbox-plugin-api = "1.10.80952"
+toolbox-plugin-api = "1.13.87111"
 # Load-bearing, and measured rather than chosen. This value is bounded on BOTH sides,
 # which is what makes it the same kind of dependency as the two kotlinx pins below rather
 # than one to keep current.
