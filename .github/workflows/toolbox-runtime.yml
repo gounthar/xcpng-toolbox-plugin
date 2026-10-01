@@ -100,7 +100,7 @@ jobs:
       # is written unquoted specifically to match what this engine emits, so bumping it
       # means re-running that check rather than waving it through.
       - name: Install updatecli
-        uses: updatecli/updatecli-action@v3.6.0
+        uses: updatecli/updatecli-action@v3.8.0
         with:
           version: v0.120.1
 
